@@ -3,6 +3,8 @@ name = "xas-batch"
 version = "0.1.0"
 description = "Batch normalization + EXAFS extraction for combined-BCR fluorescence XAS files, via Larch."
 readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Samantha Tetef" }]
 requires-python = ">=3.11"
 dependencies = ["xraylarch", "tqdm", "python-dotenv"]
 
