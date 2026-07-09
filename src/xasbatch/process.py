@@ -123,16 +123,41 @@ def resolve_e0(bcr: BcrData, params: Params) -> float:
     return float(header_e0)
 
 
+def resolve_scan_e0s(bcr: BcrData, params: Params, scan_mu: np.ndarray) -> np.ndarray:
+    """Per-scan edge energies (one per summed scan).
+
+    In auto mode each scan gets its own ``find_e0`` (scans are high-SNR sums of ~30
+    channels, so this is stable — unlike per-channel). An explicit ``params.e0`` or the
+    header value is broadcast to every scan instead.
+    """
+    n = scan_mu.shape[1]
+    if params.e0 is not None:
+        return np.full(n, float(params.e0))
+    header_e0 = bcr.meta.get("e0_tab")
+    if not (params.auto_e0 or header_e0 is None):
+        return np.full(n, float(header_e0))
+    return np.array(
+        [find_edge(bcr.energy, scan_mu[:, j], e0_guess=header_e0) for j in range(n)], dtype=float
+    )
+
+
 def _process_matrix(
-    energy: np.ndarray, mu_matrix: np.ndarray, names: list[str], params: Params, e0: float
+    energy: np.ndarray, mu_matrix: np.ndarray, names: list[str], params: Params, e0s
 ) -> ProcessBlock:
-    """Process each column of ``mu_matrix`` and stack onto a shared k-grid."""
+    """Process each column of ``mu_matrix`` (each with its own ``e0s[j]``) and stack.
+
+    ``e0s`` is a per-column array of edge energies (all-equal when a single e0 is
+    shared). Every column still lands on the same uniform k-grid.
+    """
+    e0s = np.atleast_1d(np.asarray(e0s, dtype=float))
+    if e0s.size == 1:
+        e0s = np.full(mu_matrix.shape[1], float(e0s[0]))
     flat_cols, chi_cols, edge_steps = [], [], []
     k_ref = r_ref = None
     chir_cols = [] if params.ft else None
 
     for j in range(mu_matrix.shape[1]):
-        group = process_channel(energy, mu_matrix[:, j], params, e0)
+        group = process_channel(energy, mu_matrix[:, j], params, float(e0s[j]))
 
         if k_ref is None:
             k_ref = np.asarray(group.k, dtype=float)
@@ -157,6 +182,7 @@ def _process_matrix(
         k=k_ref,
         chi=np.column_stack(chi_cols),
         edge_step=np.asarray(edge_steps, dtype=float),
+        e0=e0s.copy(),
         r=r_ref,
         chir_mag=np.column_stack(chir_cols) if params.ft else None,
     )
@@ -178,17 +204,22 @@ def _sum_scans(bcr: BcrData) -> tuple[list[str], np.ndarray, list[dict]]:
 
 
 def process_scans(bcr: BcrData, params: Params):
-    """Process the per-scan summed spectra, keeping the full Larch groups.
+    """Process the per-scan summed spectra (each with its own e0), keeping the groups.
 
-    Returns ``(e0, names, scan_mu, groups)`` where ``scan_mu`` is the raw summed
-    μ(E) per scan (nE×nScans) and ``groups`` are the processed Larch groups (with
-    ``.pre_edge/.post_edge/.norm/.flat/.bkg/.k/.chi``). Used by the plotting layer,
-    which needs the intermediate fit curves that ``process_batch`` discards.
+    Returns ``(e0_merged, names, scan_mu, groups, scan_e0s)``: ``scan_mu`` is the raw
+    summed μ(E) per scan (nE×nScans), ``groups`` are the processed Larch groups (with
+    ``.pre_edge/.post_edge/.norm/.flat/.bkg/.k/.chi``), ``scan_e0s`` is the per-scan e0,
+    and ``e0_merged`` is e0 of the mean-of-scans μ (the merged spectrum). Used by the
+    plotting layer, which needs the intermediate fit curves ``process_batch`` discards.
     """
-    e0 = resolve_e0(bcr, params)
+    e0_merged = resolve_e0(bcr, params)
     names, scan_mu, _ = _sum_scans(bcr)
-    groups = [process_channel(bcr.energy, scan_mu[:, j], params, e0) for j in range(scan_mu.shape[1])]
-    return e0, names, scan_mu, groups
+    scan_e0s = resolve_scan_e0s(bcr, params, scan_mu)
+    groups = [
+        process_channel(bcr.energy, scan_mu[:, j], params, float(scan_e0s[j]))
+        for j in range(scan_mu.shape[1])
+    ]
+    return e0_merged, names, scan_mu, groups, scan_e0s
 
 
 def process_batch(bcr: BcrData, params: Params) -> BatchResult:
@@ -199,29 +230,36 @@ def process_batch(bcr: BcrData, params: Params) -> BatchResult:
       - ``"channel"``: process every μ column individually.
       - ``"both"``: compute and store both blocks in the one result.
 
-    e0 is resolved once (see :func:`resolve_e0`) and reused across every column of
-    every block, so all k-grids align (asserted in :func:`_process_matrix`).
+    e0 handling: the ``scan`` block gets a **per-scan** e0 (each summed scan is high-SNR
+    enough for its own ``find_e0``); the ``channel`` block uses the **merged** e0 (shared)
+    since per-channel e0 is biased. ``e0_merged`` (e0 of the mean-of-scans μ) is the
+    top-level representative value. All columns still land on the same uniform k-grid.
     """
     if params.mode not in ("scan", "channel", "both"):
         raise ValueError(f"invalid mode {params.mode!r}; expected scan|channel|both.")
 
-    e0 = resolve_e0(bcr, params)
+    e0_merged = resolve_e0(bcr, params)
 
     scan_block = channel_block = None
-    scan_members = None
+    scan_members = scan_e0s = None
     if params.mode in ("scan", "both"):
         names, scan_mu, scan_members = _sum_scans(bcr)
-        scan_block = _process_matrix(bcr.energy, scan_mu, names, params, e0)
+        scan_e0s = resolve_scan_e0s(bcr, params, scan_mu)
+        scan_block = _process_matrix(bcr.energy, scan_mu, names, params, scan_e0s)
     if params.mode in ("channel", "both"):
-        channel_block = _process_matrix(bcr.energy, bcr.mu, bcr.channel_names, params, e0)
+        channel_block = _process_matrix(bcr.energy, bcr.mu, bcr.channel_names, params, e0_merged)
 
     meta = dict(bcr.meta)
-    meta["e0_used"] = e0
+    meta["e0_used"] = e0_merged
+    meta["e0_merged"] = e0_merged
     meta["e0_source"] = (
         "explicit"
         if params.e0 is not None
         else ("find_e0" if (params.auto_e0 or bcr.meta.get("e0_tab") is None) else "header_e0_tab")
     )
+    if scan_e0s is not None:
+        meta["e0_scan_mean"] = float(np.mean(scan_e0s))
+        meta["e0_scan_std"] = float(np.std(scan_e0s))
     meta["mode"] = params.mode
     meta["n_channels_raw"] = bcr.n_channels
     meta["modes_present"] = [
@@ -231,5 +269,5 @@ def process_batch(bcr: BcrData, params: Params) -> BatchResult:
         meta["scan_members"] = scan_members
 
     return BatchResult(
-        energy=bcr.energy, e0=e0, scan=scan_block, channel=channel_block, meta=meta
+        energy=bcr.energy, e0=e0_merged, scan=scan_block, channel=channel_block, meta=meta
     )

@@ -105,7 +105,8 @@ declares it explicitly: `uv sync --extra plot`.)
 One `<sample>.npz` per file: shared `energy`, `e0`, JSON `meta_json`; plus a `scan_*`
 and/or `channel_*` block:
 
-    <prefix>_names, <prefix>_flat (nE×n), <prefix>_k, <prefix>_chi (nk×n), <prefix>_edge_step
+    <prefix>_names, <prefix>_flat (nE×n), <prefix>_k, <prefix>_chi (nk×n),
+    <prefix>_edge_step, <prefix>_e0   (per-column e0: per-scan for scan, merged for channel)
     (+ <prefix>_r / <prefix>_chir_mag when --ft is given)
 
 `meta` records `mode`, `modes_present`, `n_channels_raw`, `e0_used`/`e0_source`, and

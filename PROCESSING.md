@@ -98,29 +98,34 @@ switches to the tabulated value instead, and `--e0` forces a specific value.
 `find_edge` adds two noise guards (following catXAS's `calculate_spectrum_e0`): the
 derivative-max search is **restricted to `E0_tab ± 25 eV`** so a glitch or far feature
 can't hijack it, and μ is lightly **Savitzky-Golay smoothed** in that window first. Both
-are no-ops on the clean merged spectrum but matter for pathological files — and they are
-*why the merge is done first*: per-channel `find_e0` scatters ~±2.7 eV on this data
-(range ~13 eV), while the merged estimate is stable.
+are no-ops on a clean high-SNR spectrum but matter for noisy/glitchy ones.
 
-- **Why `find_e0`, not the header, by default?** The header `E0_tab` (7709 eV for Co K)
-  is the *reference foil's* tabulated calibration energy, used upstream to align the
-  energy axis — not this sample's edge. `find_e0` returns the sample's own derivative-max
-  (≈7714 on Co3NK_s), which is the more appropriate origin for that sample's EXAFS. (The
-  ~5 eV difference is expected, not an error.)
-- **Why once per file (shared), not per scan?** The scans are the *same sample*, already
-  energy-calibrated onto a shared grid, so there is physically one edge. Estimating it
-  once on the merged spectrum is more robust than per-scan `find_e0`, which would add
-  noise-level scatter to each scan's k-origin and slightly mis-register the χ(k) you
-  stack/merge. `edge_step`, by contrast, **is** per scan — each scan is normalized by its
-  own edge jump at the shared e0 (standard).
+**Granularity — per scan vs merged:**
+
+- The **scan** block gets a **per-scan e0**: each summed scan (~30 channels) is high-SNR
+  enough for its own `find_e0`. On this data the per-scan e0 is tight — ⟨E₀⟩ ≈ 7714.4 ±
+  0.08 eV across 15 scans — and its mean matches the merged value to ~0.03 eV. Each
+  scan's `edge_step` is likewise per scan. Both `scan_e0` and `scan_edge_step` are stored
+  in the `.npz`.
+- The **merged e0** (`find_e0` on the mean-of-scans μ) is the top-level representative
+  value and the comparison reported in the plots.
+- The **channel** block uses the **merged e0** (shared), *not* per-channel `find_e0`:
+  per-channel detection scatters ~±2.7 eV **and is biased ~3 eV high** — because
+  `find_e0` is the argmax of the derivative (nonlinear), noise on a single channel pulls
+  the max around. You must **average the signal first, then find e0** ("average-then-find
+  ≠ find-then-average"); summing into scans or the merge does exactly that.
+- **Why `find_e0`, not the header?** The header `E0_tab` (7709 eV for Co K) is the
+  *reference foil's* calibration energy, used upstream to align the energy axis — not
+  this sample's edge. `find_e0` returns the sample's own derivative-max (≈7714), the
+  more appropriate EXAFS origin. `--header-e0` opts back into the tabulated value.
 - **e0 is fixed during splining — it does not float.** It sets the k-axis origin and the
   edge-step reference, held constant through `pre_edge` and `autobk`. The floating ΔE0
   you may know from **FEFF/path fitting** is a *downstream* fit parameter (out of scope
   here); if you fit paths later, that ΔE0 harmlessly absorbs the extraction-e0 choice.
 
-Because a single e0 (+ shared energy grid + `kstep`) is reused for every spectrum in a
-file, all χ(k) land on an **identical k-grid** — which is what lets them stack into a
-matrix (asserted in `_process_matrix`).
+The output k array is a uniform grid independent of e0, so all spectra stack into a
+matrix regardless (asserted in `_process_matrix`); the ~0.08 eV per-scan e0 spread only
+shifts each scan's k-origin negligibly.
 
 ## Step 3 — `xftf` (optional forward FT)
 

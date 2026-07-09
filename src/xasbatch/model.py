@@ -77,6 +77,7 @@ class ProcessBlock:
     k: np.ndarray  # (nk,) shared across columns
     chi: np.ndarray  # (nk, n)
     edge_step: np.ndarray  # (n,) per-column edge jump
+    e0: np.ndarray | None = None  # (n,) per-column e0 used (scans: per-scan; channels: merged)
     # optional forward FT (populated only when Params.ft is True)
     r: np.ndarray | None = None  # (nR,)
     chir_mag: np.ndarray | None = None  # (nR, n)

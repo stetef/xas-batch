@@ -89,6 +89,19 @@ def test_e0_defaults_to_find_e0(bcr):
     assert 7709.0 <= result.e0 <= 7729.0
 
 
+def test_per_scan_e0_stored_and_near_merged(bcr):
+    result = process_batch(bcr, Params(mode="scan"))
+    # per-scan e0 vector present, one per scan
+    assert result.scan.e0 is not None
+    assert result.scan.e0.shape == (N_SCANS,)
+    # scans are high-SNR sums -> per-scan e0 tight and centered on the merged e0
+    assert result.meta["e0_scan_std"] < 1.0
+    assert abs(result.meta["e0_scan_mean"] - result.meta["e0_merged"]) < 1.0
+    # channel block (shared merged e0) all-equal when present
+    ch = process_batch(bcr, Params(mode="channel")).channel
+    assert np.allclose(ch.e0, ch.e0[0])
+
+
 def test_header_e0_when_requested(bcr):
     result = process_batch(bcr, Params(auto_e0=False))
     assert result.meta["e0_source"] == "header_e0_tab"

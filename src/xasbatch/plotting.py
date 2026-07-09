@@ -17,6 +17,7 @@ raw builders without inheriting the styling.
 from __future__ import annotations
 
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 
@@ -71,30 +72,36 @@ def plot_raw(energy, scan_mu, names, merged_mu=None, ax=None):
     return _finish(ax)
 
 
-def plot_norm_fits(energy, groups, names, e0, fig=None):
-    """Grid: each scan's μ(E) with pre/post-edge fits (left) and flattened μ (right)."""
+def plot_norm_fits(energy, groups, names, e0s, e0_merged=None, fig=None):
+    """Grid: each scan's μ(E) with pre/post-edge fits (left) and flattened μ (right).
+
+    ``e0s`` is the per-scan edge energy; ``e0_merged`` (optional) is shown as the
+    comparison in the header stats line alongside the per-scan mean ± std.
+    """
     n = len(groups)
-    header = 0.9  # inches reserved at the top for the title + shared legend row
+    e0s = np.atleast_1d(np.asarray(e0s, dtype=float))
+    header = 1.2  # inches reserved at the top for title + legend + e0-stats rows
     height = 2.2 * n + header
     fig = fig or plt.figure(figsize=(9.5, height))
     axes = fig.subplots(n, 2, squeeze=False)
     for j, (g, name) in enumerate(zip(groups, names)):
+        e0j = float(e0s[j])
         left, right = axes[j]
         left.plot(energy, g.mu, color=_C_MU, lw=1.3)
         left.plot(energy, g.pre_edge, color=_C_PRE, lw=1.3, ls="--")
         left.plot(energy, g.post_edge, color=_C_POST, lw=1.3, ls="--")
-        left.axvline(e0, color="0.65", lw=0.9, ls=":")
+        left.axvline(e0j, color="0.65", lw=0.9, ls=":")
         # mark the actual pre-edge (blue) and post-edge/norm (orange) fit ranges
         d = getattr(g, "pre_edge_details", None)
         if d is not None:
-            for x in (e0 + d.pre1, e0 + d.pre2):
+            for x in (e0j + d.pre1, e0j + d.pre2):
                 left.axvline(x, color=_C_PRE, lw=0.8, alpha=0.6, zorder=0)
-            for x in (e0 + d.norm1, e0 + d.norm2):
+            for x in (e0j + d.norm1, e0j + d.norm2):
                 left.axvline(x, color=_C_POST, lw=0.8, alpha=0.6, zorder=0)
         left.text(0.02, 0.95, name, transform=left.transAxes, ha="left", va="top",
                   fontsize=12, color="black")
-        # E0 + edge step reported per scan (no box), so a future per-scan e0 shows here
-        left.text(0.65, 0.32, rf"$E_0 = {e0:.1f}$ eV" "\n" rf"$\Delta\mu_0 = {g.edge_step:.3f}$",
+        # per-scan E0 + edge step (no box)
+        left.text(0.65, 0.32, rf"$E_0 = {e0j:.2f}$ eV" "\n" rf"$\Delta\mu_0 = {g.edge_step:.3f}$",
                   transform=left.transAxes, ha="left", va="center", fontsize=12)
         right.plot(energy, g.flat, color=_C_FLAT, lw=1.4)
         right.axhline(1.0, color="0.7", lw=0.8, ls=":")
@@ -108,14 +115,18 @@ def plot_norm_fits(energy, groups, names, e0, fig=None):
             right.set_xlabel("Energy (eV)")
 
     fig.tight_layout(rect=(0, 0, 1, 1 - header / height))
-    fig.suptitle("Normalization per scan", y=1 - 0.22 * header / height, fontsize=15)
+    fig.suptitle("Normalization per scan", y=1 - 0.16 * header / height, fontsize=15)
     handles = [
         Line2D([0], [0], color=_C_MU, lw=1.5, label=r"$\mu(E)$"),
         Line2D([0], [0], color=_C_PRE, lw=1.5, ls="--", label="pre-edge"),
         Line2D([0], [0], color=_C_POST, lw=1.5, ls="--", label="post-edge"),
         Line2D([0], [0], color=_C_FLAT, lw=1.6, label=r"flattened $\mu(E)$"),
     ]
-    fig.legend(handles=handles, loc="center", ncol=4, bbox_to_anchor=(0.5, 1 - 0.62 * header / height))
+    fig.legend(handles=handles, loc="center", ncol=4, bbox_to_anchor=(0.5, 1 - 0.44 * header / height))
+    stats = rf"$\langle E_0 \rangle = {e0s.mean():.2f} \pm {e0s.std():.2f}$ eV  (per scan, $n={n}$)"
+    if e0_merged is not None:
+        stats += rf"        $E_0^{{\rm merged}} = {e0_merged:.2f}$ eV"
+    fig.text(0.5, 1 - 0.74 * header / height, stats, ha="center", va="center", fontsize=12)
     return fig
 
 
@@ -172,23 +183,23 @@ def figure_report(bcr, params, kweight=3) -> list[tuple[str, Figure]]:
     """Build all four processing figures for one file. Returns [(label, Figure), ...]."""
     from xasbatch.process import process_channel, process_scans
 
-    e0, names, scan_mu, groups = process_scans(bcr, params)
+    e0_merged, names, scan_mu, groups, scan_e0s = process_scans(bcr, params)
     energy = bcr.energy
 
     # Merge in E space, then carry it through: average μ(E), run the SAME pipeline once.
     merged_mu = scan_mu.mean(axis=1)
-    merged = process_channel(energy, merged_mu, params, e0)
+    merged = process_channel(energy, merged_mu, params, e0_merged)
 
     with plt.rc_context(_RC):
         f_raw = plt.figure(figsize=(8, 4.8))
         plot_raw(energy, scan_mu, names, merged_mu=merged_mu, ax=f_raw.gca())
 
-        f_norm = plot_norm_fits(energy, groups, names, e0)
+        f_norm = plot_norm_fits(energy, groups, names, scan_e0s, e0_merged=e0_merged)
 
         f_flat = plt.figure(figsize=(6.2, 4.2))
         plot_flat_overlay(energy, groups, names, merged=merged, ax=f_flat.gca())
 
-        f_exafs = plot_exafs(energy, groups, names, e0, merged=merged, kweight=kweight)
+        f_exafs = plot_exafs(energy, groups, names, e0_merged, merged=merged, kweight=kweight)
 
         for f in (f_raw, f_flat):
             f.tight_layout()

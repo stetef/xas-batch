@@ -95,16 +95,17 @@ results, asserting every column returns the same-length `k`.
 > For the numerical detail — that AUTOBK splines the **raw** μ(E) (not `flat`/`norm`),
 > how χ(k) is defined, and what each parameter changes — see **[PROCESSING.md](PROCESSING.md)**.
 
-### e0 is resolved once per file
+### e0 resolution (per scan, plus a merged reference)
 
 Resolution order (`resolve_e0`): explicit `Params.e0` > `find_e0` (default) > header
 `E0_tab`. By default `find_e0` detects from the **merged (mean)** spectrum so one noisy
 channel can't skew it; `--header-e0` uses the tabulated value instead.
 
-The shared e0 is what makes the aligned k-grid a *guarantee*, not an assumption: same
-energy + e0 + kstep → identical `k` for every spectrum, and even the `scan` and
-`channel` blocks share it. e0 is shared per file (not per scan) because the scans are
-the same, already-calibrated sample — `edge_step`, though, is per scan.
+The **scan** block uses a **per-scan e0** (each summed scan is high-SNR; ⟨E₀⟩≈7714.4 ±
+0.08 eV here), stored as `scan_e0`. The **channel** block uses the **merged e0** (shared)
+— per-channel `find_e0` is scattered *and biased* (argmax is nonlinear; average-then-find
+≠ find-then-average). The output k array is a uniform grid independent of e0, so all
+spectra still stack into a matrix; `edge_step` is per column throughout.
 
 > **Why `find_e0` by default, not the header?** The header `E0_tab` (7709 for Co K) is
 > the *reference foil's* calibration energy, not this sample's edge. `find_e0` returns
@@ -130,8 +131,9 @@ alone is small.
 ## Output (`.npz` per file)
 
 One `<sample>.npz` (or, in a tree run, the source basename with `.bcr.combined` →
-`.npz`). Shared `energy`, `e0`, `meta_json`; then namespaced `scan_*` and/or
-`channel_*` arrays (`_names/_flat/_k/_chi/_edge_step`, plus `_r/_chir_mag` with `--ft`).
+`.npz`). Shared `energy`, `e0` (merged), `meta_json`; then namespaced `scan_*` and/or
+`channel_*` arrays (`_names/_flat/_k/_chi/_edge_step/_e0`, plus `_r/_chir_mag` with
+`--ft`). `scan_e0` is per scan; `channel_e0` is the shared merged value.
 
 **One file, namespaced blocks — not `.scan.npz`/`.channel.npz`.** Keeps one artifact
 and one catalog row per source, and lets downstream code load one file and pick a block.

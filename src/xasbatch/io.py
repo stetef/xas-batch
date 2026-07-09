@@ -232,6 +232,8 @@ def _block_arrays(prefix: str, block) -> dict:
         f"{prefix}_chi": block.chi,
         f"{prefix}_edge_step": block.edge_step,
     }
+    if block.e0 is not None:
+        arrays[f"{prefix}_e0"] = block.e0
     if block.r is not None and block.chir_mag is not None:
         arrays[f"{prefix}_r"] = block.r
         arrays[f"{prefix}_chir_mag"] = block.chir_mag
