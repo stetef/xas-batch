@@ -48,7 +48,7 @@ class Params:
     # narrow near-edge window extrapolated outward.
     pre1: float | None = None  # pre-edge fit start; None -> file start
     pre2: float = -50.0  # pre-edge fit end (stay below the edge onset)
-    norm1: float = 75.0  # post-edge fit start (above the XANES / white line)
+    norm1: float = 150.0  # post-edge fit start (above the XANES; Athena convention)
     norm2: float | None = None  # post-edge fit end; None -> file end
     nnorm: int = 2
     # autobk -> chi(k)

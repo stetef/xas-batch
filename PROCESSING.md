@@ -31,12 +31,32 @@ Fits two curves to raw μ(E), relative to the edge energy `e0`:
 - a **post-edge polynomial** (degree `nnorm`, default 2) over `[e0+norm1, e0+norm2]`.
 
 **The fit ranges span the data by default.** Only the offsets are pinned — `pre2 = −50`
-(stay below the edge onset) and `norm1 = +75` (start above the XANES / white line) —
+(stay below the edge onset) and `norm1 = +150` (start above the XANES / white line) —
 while `pre1` and `norm2` default to `None`, which Larch resolves to the **file's first
 and last energy**. Fitting the post-edge polynomial across the *whole* range (rather
 than a narrow near-edge window extrapolated outward) is what makes the flattened μ sit
 flat at ≈1.0 out to high k; a narrow `norm2` produces a drooping, unusable flat μ. All
 four bounds are overridable (`--pre1/--pre2/--norm1/--norm2`, and `--nnorm`).
+
+### Why `norm1 = 150` and not an element-specific table
+
+`norm1` only needs to start the post-edge fit *above* the near-edge structure (XANES /
+white line), which spans roughly the first ~30–50 eV above the edge. **150 eV is a fixed,
+element-agnostic offset that clears it** — the long-standing ATHENA convention — and on
+these data the flattening is insensitive to it (`norm1` from 75→300 all flatten to
+≈1.000; only `edge_step`, i.e. χ amplitude, shifts a few %). There is **no rigorous
+per-element `norm1` standard**, so a table would be false precision. Since scans reach
+high k (k=8 ⇒ only ~244 eV above E₀, data here to ~860 eV) there is ample room to start
+at 150.
+
+Genuine element/edge dependence enters elsewhere:
+
+- **E₀** — tabulated edge energies *are* element/edge-specific; taken from the header
+  `E0_tab` (xraydb) by default. See [e0](#e0).
+- **Usable post-edge window / `kmax`** — bounded by the *next* absorption edge (a higher
+  edge of the same element, or another element in the sample). Irrelevant for an isolated
+  Co K edge; it matters for L edges (L₃/L₂/L₁ are close) or multi-element samples. That
+  constrains `norm2`/`kmax`, not `norm1`.
 
 From these it sets:
 
@@ -110,7 +130,7 @@ backgrounds differ.)
 | `e0` | `None` | e0 | force edge energy; `None` → header `E0_tab` |
 | `auto_e0` | `False` | e0 | detect e0 via `find_e0` instead of the header |
 | `pre1`, `pre2` | None(file start), −50 | pre_edge | pre-edge fit window (eV rel. e0) |
-| `norm1`, `norm2` | 75, None(file end) | pre_edge | post-edge fit window (eV rel. e0) |
+| `norm1`, `norm2` | 150, None(file end) | pre_edge | post-edge fit window (eV rel. e0) |
 | `nnorm` | 2 | pre_edge | post-edge polynomial degree |
 | `rbkg` | 1.0 | autobk | R below which signal is treated as background (Å) |
 | `kmin`, `kmax` | 0.0, `None` | autobk | χ(k) range (`None` = full) |
@@ -124,3 +144,19 @@ backgrounds differ.)
 flattened result, and the normalized-μ + AUTOBK-spline with kⁿ·χ(k) — one place to
 sanity-check every step above. In the EXAFS panel the gap between the solid (`norm`)
 and dashed (normalized μ₀) curves *is* χ(k) before the E→k interpolation.
+
+## References
+
+- M. Newville, *Fundamentals of XAFS*, Rev. Mineral. Geochem. **78**, 33–74 (2014).
+  doi:[10.2138/rmg.2014.78.2](https://doi.org/10.2138/rmg.2014.78.2) — normalization,
+  AUTOBK background, and χ(k) conventions used here.
+- B. Ravel & M. Newville, *ATHENA, ARTEMIS, HEPHAESTUS…*, J. Synchrotron Rad. **12**,
+  537–541 (2005). doi:[10.1107/S0909049505012719](https://doi.org/10.1107/S0909049505012719)
+  — the widely-used defaults these choices mirror (incl. the ~150 eV post-edge start).
+- S. Calvin, *XAFS for Everyone*, CRC Press (2013) — practical guidance on picking
+  pre/post-edge ranges and normalization order.
+- Larch `pre_edge` / `autobk` / `xftf`:
+  <https://xraypy.github.io/xraylarch/xafs/preedge.html>,
+  [.../autobk.html](https://xraypy.github.io/xraylarch/xafs/autobk.html).
+- Tabulated edge energies E₀ (the genuinely element/edge-specific input): xraydb,
+  <https://xraypy.github.io/XrayDB/>.
