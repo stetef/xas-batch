@@ -75,12 +75,12 @@ Render the per-scan pipeline for one file to PNGs (or `--show` to view interacti
 uv run xas-batch-plot INPUT.bcr.combined [-o plots/] [--chi-kweight 3]
 ```
 
-Produces four figures:
+Writes four figures into a per-sample subdir, `<outdir>/<sample>/`:
 
-1. `_1_raw` — summed μ(E) per scan (= Σ FF/I0) + average across scans
-2. `_2_norm_fits` — per-scan grid: μ(E) with pre/post-edge fits (left), flattened μ (right)
-3. `_3_flat` — all flattened scans overlaid + average
-4. `_4_exafs` — normalized μ + AUTOBK splines (left), kⁿ·χ(k) per scan + average (right)
+1. `1_raw.png` — summed μ(E) per scan (= Σ FF/I0) + average across scans
+2. `2_norm_fits.png` — per-scan grid: μ(E) with pre/post-edge fits (left), flattened μ (right)
+3. `3_flat.png` — all flattened scans overlaid + average
+4. `4_exafs.png` — normalized μ + AUTOBK splines (left), kⁿ·χ(k) per scan + average (right)
 
 The plotting functions in `plotting.py` are reusable, so a notebook/Streamlit front-end
 can call them directly. (matplotlib comes in transitively via Larch; the `plot` extra

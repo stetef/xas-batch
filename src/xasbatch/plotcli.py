@@ -41,7 +41,7 @@ def main(argv: list[str] | None = None) -> int:
         matplotlib.use("Agg")  # headless save
     import matplotlib.pyplot as plt
 
-    from xasbatch.io import load_combined_bcr
+    from xasbatch.io import combined_stem, load_combined_bcr
     from xasbatch.plotting import figure_report
 
     params = Params(
@@ -55,10 +55,11 @@ def main(argv: list[str] | None = None) -> int:
         plt.show()
         return 0
 
-    sample = bcr.meta.get("sample") or args.input.stem
-    args.outdir.mkdir(parents=True, exist_ok=True)
+    sample = bcr.meta.get("sample") or combined_stem(args.input)
+    sample_dir = args.outdir / sample  # one dir per sample, not flat
+    sample_dir.mkdir(parents=True, exist_ok=True)
     for label, fig in figs:
-        out = args.outdir / f"{sample}_{label}.png"
+        out = sample_dir / f"{label}.png"
         fig.savefig(out, dpi=args.dpi, bbox_inches="tight")
         plt.close(fig)
         print(f"wrote {out}")
