@@ -67,6 +67,25 @@ channels (the header's `# Members (kept):` block says how many).
 `scan` and `channel` share one per-file e0, so their k-grids align. `both` ≈ `channel`
 in size (the scan block rides along nearly free); `scan`-only is ~20× smaller.
 
+## Visualize the processing (`xas-batch-plot`)
+
+Render the per-scan pipeline for one file to PNGs (or `--show` to view interactively):
+
+```bash
+uv run xas-batch-plot INPUT.bcr.combined [-o plots/] [--chi-kweight 3]
+```
+
+Produces four figures:
+
+1. `_1_raw` — summed μ(E) per scan (= Σ FF/I0) + average across scans
+2. `_2_norm_fits` — per-scan grid: μ(E) with pre/post-edge fits (left), flattened μ (right)
+3. `_3_flat` — all flattened scans overlaid + average
+4. `_4_exafs` — normalized μ + AUTOBK splines (left), kⁿ·χ(k) per scan + average (right)
+
+The plotting functions in `plotting.py` are reusable, so a notebook/Streamlit front-end
+can call them directly. (matplotlib comes in transitively via Larch; the `plot` extra
+declares it explicitly: `uv sync --extra plot`.)
+
 ## Options
 
 - `--mode {scan,channel,both}` — see above.
@@ -93,4 +112,5 @@ and/or `channel_*` block:
 | `model.py`, `io.py` | pure numpy — data model, header parser, npz I/O, scan grouping |
 | `process.py` | the Larch layer (`pre_edge`, `autobk`, `xftf`) |
 | `catalog.py` | SQLite catalog for tree runs |
-| `cli.py`, `tree.py` | the `xas-batch` and `xas-batch-tree` entry points |
+| `plotting.py` | matplotlib panel builders (optional; separate from core) |
+| `cli.py`, `tree.py`, `plotcli.py` | the `xas-batch`, `xas-batch-tree`, `xas-batch-plot` entry points |

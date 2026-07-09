@@ -66,9 +66,19 @@ Facts that drive the design:
 io.py / model.py   pure numpy, NO Larch  — parser + data model + npz/scan-grouping
 process.py         the Larch layer       — pre_edge / autobk / xftf
 catalog.py         stdlib sqlite3        — the tree-run catalog
+plotting.py        matplotlib (optional) — per-scan pipeline figures
 cli.py             xas-batch entry point
 tree.py            xas-batch-tree entry point (walk + pool + catalog)
+plotcli.py         xas-batch-plot entry point (per-scan figures for one file)
 ```
+
+**Plotting re-runs from source, and re-uses the Larch groups.** The fit curves a
+reviewer wants to see — the pre-edge line, post-edge polynomial, and AUTOBK background
+— live on the Larch group but are *not* stored in the `.npz` (which keeps only stacked
+arrays). So `process.process_scans()` re-runs the per-scan pipeline and hands the full
+groups to `plotting.py`. This keeps the `.npz` lean and the plots always faithful to a
+given `Params`, at the cost of a cheap recompute (~15 scans). matplotlib stays out of
+the core (`io`/`process`); only `plotting.py`/`plotcli.py` import it.
 
 **The parser is the only genuinely custom, bug-prone code, so it carries no Larch
 dependency** — `io.py`/`model.py`/`catalog.py` are unit-testable in ~3 s without

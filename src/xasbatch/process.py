@@ -152,6 +152,20 @@ def _sum_scans(bcr: BcrData) -> tuple[list[str], np.ndarray, list[dict]]:
     return names, np.column_stack(cols), members
 
 
+def process_scans(bcr: BcrData, params: Params):
+    """Process the per-scan summed spectra, keeping the full Larch groups.
+
+    Returns ``(e0, names, scan_mu, groups)`` where ``scan_mu`` is the raw summed
+    μ(E) per scan (nE×nScans) and ``groups`` are the processed Larch groups (with
+    ``.pre_edge/.post_edge/.norm/.flat/.bkg/.k/.chi``). Used by the plotting layer,
+    which needs the intermediate fit curves that ``process_batch`` discards.
+    """
+    e0 = resolve_e0(bcr, params)
+    names, scan_mu, _ = _sum_scans(bcr)
+    groups = [process_channel(bcr.energy, scan_mu[:, j], params, e0) for j in range(scan_mu.shape[1])]
+    return e0, names, scan_mu, groups
+
+
 def process_batch(bcr: BcrData, params: Params) -> BatchResult:
     """Process one file into a ``scan`` and/or ``channel`` block on a shared e0.
 

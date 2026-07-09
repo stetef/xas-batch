@@ -11,6 +11,7 @@ dependencies = ["xraylarch", "tqdm", "python-dotenv"]
 [project.scripts]
 xas-batch = "xasbatch.cli:main"
 xas-batch-tree = "xasbatch.tree:main"
+xas-batch-plot = "xasbatch.plotcli:main"
 
 [project.optional-dependencies]
 plot = ["matplotlib"]
