@@ -87,10 +87,15 @@ def _process_one(task: tuple[str, str, Params]) -> dict:
     try:
         # imported here so Larch loads in the worker, not the orchestrator
         from xasbatch.io import load_combined_bcr, save_npz
-        from xasbatch.process import process_batch
+        from xasbatch.process import SkipFile, process_batch
 
         bcr = load_combined_bcr(src_p)
-        result = process_batch(bcr, params)
+        try:
+            result = process_batch(bcr, params)
+        except SkipFile as exc:  # expected, clean skip (e.g. too little post-edge range)
+            rec.update(status="skipped", element=bcr.meta.get("element"),
+                       edge=bcr.meta.get("edge"), error=str(exc))
+            return rec
         save_npz(result, out_path)
         rec.update(
             status="ok",
@@ -179,16 +184,20 @@ def main(argv: list[str] | None = None) -> int:
         f"{len(tasks)} to process | jobs={args.jobs} | -> {dest} | catalog: {db_path}"
     )
 
-    ok = err = 0
+    ok = err = qc_skipped = 0
 
     def handle(rec: dict) -> None:
-        nonlocal ok, err
+        nonlocal ok, err, qc_skipped
         catalog.record(conn, rec)
+        name = Path(rec["source_path"]).name
         if rec["status"] == "ok":
             ok += 1
+        elif rec["status"] == "skipped":
+            qc_skipped += 1
+            tqdm.write(f"SKIP  {name}: {rec['error']}")
         else:
             err += 1
-            tqdm.write(f"FAIL  {Path(rec['source_path']).name}: {rec['error']}")
+            tqdm.write(f"FAIL  {name}: {rec['error']}")
 
     t0 = time.perf_counter()
     if not tasks:
@@ -206,7 +215,10 @@ def main(argv: list[str] | None = None) -> int:
 
     total = catalog.add_elapsed(conn, elapsed) if tasks else catalog.total_elapsed(conn)
     conn.close()
-    print(f"done: {ok} ok, {err} error, {skipped} skipped ({len(files)} total).")
+    print(
+        f"done: {ok} ok, {qc_skipped} skipped (QC), {err} error, "
+        f"{skipped} already-done ({len(files)} total)."
+    )
     print(f"time: {fmt_duration(elapsed)} this run | {fmt_duration(total)} cumulative (all runs).")
     return 1 if err else 0
 

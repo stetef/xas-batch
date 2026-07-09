@@ -38,6 +38,11 @@ def add_param_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     p.add_argument("--kweight", type=int, default=d.kweight, help=f"k-weight (default: {d.kweight})")
     p.add_argument("--kstep", type=float, default=d.kstep, help=f"k step (default: {d.kstep})")
     p.add_argument("--ft", action="store_true", help="also compute the forward FT χ(R)")
+    p.add_argument(
+        "--no-qc", dest="qc", action="store_false",
+        help="disable QC: merge all scans (default excludes e0-outlier / non-finite scans)",
+    )
+    p.set_defaults(qc=True)
     return p
 
 
@@ -55,7 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
 def block_summary(result) -> str:
     """One-line description of which blocks a result carries, e.g. 'scan=15, channel=448 (nk=301)'."""
     parts = []
-    for label, blk in (("scan", result.scan), ("channel", result.channel)):
+    for label, blk in (("scan", result.scan), ("channel", result.channel), ("merged", result.merged)):
         if blk is not None:
             parts.append(f"{label}={blk.n} (nk={blk.k.size})")
     return ", ".join(parts) if parts else "no blocks"
@@ -83,6 +88,7 @@ def params_from_args(args: argparse.Namespace) -> Params:
         kweight=args.kweight,
         kstep=args.kstep,
         ft=args.ft,
+        qc=args.qc,
     )
 
 
@@ -90,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
     # Larch is imported here (not at module top) so the shared arg helpers can be
     # reused by xas-batch-tree without pulling Larch into the orchestrator process.
     from xasbatch.io import load_combined_bcr, save_result
-    from xasbatch.process import process_batch
+    from xasbatch.process import SkipFile, process_batch
 
     args = build_parser().parse_args(argv)
     params = params_from_args(args)
@@ -106,13 +112,18 @@ def main(argv: list[str] | None = None) -> int:
             bcr = load_combined_bcr(path)
             result = process_batch(bcr, params)
             out_path = save_result(result, args.outdir)
+        except SkipFile as exc:  # expected, not a crash
+            print(f"SKIP  {path.name}: {exc}", file=sys.stderr)
+            continue
         except Exception as exc:  # keep going across a batch; report at the end
             print(f"FAIL  {path.name}: {exc}", file=sys.stderr)
             failures += 1
             continue
+        excl = result.meta.get("n_scans_excluded", 0)
+        extra = f", {excl} scan(s) excluded" if excl else ""
         print(
             f"OK    {path.name}: {block_summary(result)}, "
-            f"e0={result.e0:.2f} eV ({result.meta['e0_source']}) -> {out_path}"
+            f"e0={result.e0:.2f} eV ({result.meta['e0_source']}){extra} -> {out_path}"
         )
 
     return 1 if failures else 0

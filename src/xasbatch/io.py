@@ -255,6 +255,10 @@ def _npz_arrays(result: BatchResult) -> dict:
         arrays.update(_block_arrays("scan", result.scan))
     if result.channel is not None:
         arrays.update(_block_arrays("channel", result.channel))
+    if result.merged is not None:
+        arrays.update(_block_arrays("merged", result.merged))
+    if result.scan_pass is not None:
+        arrays["scan_pass"] = np.asarray(result.scan_pass, dtype=bool)
     return arrays
 
 

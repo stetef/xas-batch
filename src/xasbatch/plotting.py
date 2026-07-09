@@ -40,8 +40,10 @@ _RC = {
 }
 
 # Individual scans share one muted color (their identity isn't the point — the
-# spread and the merge are); the E-space merge is the bold trace.
+# spread and the merge are); the E-space merge is the bold trace. QC-excluded scans
+# are drawn in faint red so they're visible but clearly set apart.
 _SCAN = dict(color="0.60", lw=0.8, alpha=0.75)
+_EXCL = dict(color="#C0392B", lw=0.9, alpha=0.55)
 _MERGED = dict(color="black", lw=2.0, zorder=6)
 # Okabe–Ito colorblind-safe accents for the per-scan normalization fits.
 _C_MU, _C_PRE, _C_POST, _C_FLAT, _C_BKG = "black", "#0072B2", "#D55E00", "#13396B", "#CC3311"
@@ -52,34 +54,45 @@ def _finish(ax):
     return ax
 
 
-def _overlay_legend(ax, n, merged=True):
-    """Two-entry legend for the overlay panels (scans share a color)."""
-    handles = [Line2D([0], [0], color=_SCAN["color"], lw=1.4, label=f"scans (n={n})")]
+def _pass_mask(n, scan_pass):
+    if scan_pass is None:
+        return np.ones(n, dtype=bool)
+    return np.asarray(scan_pass, dtype=bool)
+
+
+def _overlay_legend(ax, n_pass, n_excl=0, merged=True):
+    """Legend for the overlay panels (scans share a color; excluded shown separately)."""
+    handles = [Line2D([0], [0], color=_SCAN["color"], lw=1.4, label=f"scans (n={n_pass})")]
+    if n_excl:
+        handles.append(Line2D([0], [0], color=_EXCL["color"], lw=1.4, label=f"excluded (n={n_excl})"))
     if merged:
         handles.append(Line2D([0], [0], **_MERGED, label="merged (avg)"))
     ax.legend(handles=handles, loc="best")
 
 
-def plot_raw(energy, scan_mu, names, merged_mu=None, ax=None):
+def plot_raw(energy, scan_mu, names, merged_mu=None, scan_pass=None, ax=None):
     """Raw summed μ(E) (= Σ FF/I0) per scan, with the E-space merge (mean μ)."""
     ax = ax or plt.gca()
+    keep = _pass_mask(scan_mu.shape[1], scan_pass)
     for j in range(scan_mu.shape[1]):
-        ax.plot(energy, scan_mu[:, j], **_SCAN)
+        ax.plot(energy, scan_mu[:, j], **(_SCAN if keep[j] else _EXCL))
     if merged_mu is not None:
         ax.plot(energy, merged_mu, **_MERGED)
     ax.set(xlabel="Energy (eV)", ylabel=r"$\mu$ (summed FF/I0)", title="Raw summed scans")
-    _overlay_legend(ax, len(names), merged=merged_mu is not None)
+    _overlay_legend(ax, int(keep.sum()), int((~keep).sum()), merged=merged_mu is not None)
     return _finish(ax)
 
 
-def plot_norm_fits(energy, groups, names, e0s, e0_merged=None, fig=None):
+def plot_norm_fits(energy, groups, names, e0s, e0_merged=None, scan_pass=None, fig=None):
     """Grid: each scan's μ(E) with pre/post-edge fits (left) and flattened μ (right).
 
     ``e0s`` is the per-scan edge energy; ``e0_merged`` (optional) is shown as the
-    comparison in the header stats line alongside the per-scan mean ± std.
+    comparison in the header stats line alongside the per-scan mean ± std (over the
+    QC-passing scans). Excluded scans are labeled in red.
     """
     n = len(groups)
     e0s = np.atleast_1d(np.asarray(e0s, dtype=float))
+    keep = _pass_mask(n, scan_pass)
     header = 1.2  # inches reserved at the top for title + legend + e0-stats rows
     height = 2.2 * n + header
     fig = fig or plt.figure(figsize=(9.5, height))
@@ -98,8 +111,9 @@ def plot_norm_fits(energy, groups, names, e0s, e0_merged=None, fig=None):
                 left.axvline(x, color=_C_PRE, lw=0.8, alpha=0.6, zorder=0)
             for x in (e0j + d.norm1, e0j + d.norm2):
                 left.axvline(x, color=_C_POST, lw=0.8, alpha=0.6, zorder=0)
-        left.text(0.02, 0.95, name, transform=left.transAxes, ha="left", va="top",
-                  fontsize=12, color="black")
+        label = name if keep[j] else f"{name}  — EXCLUDED"
+        left.text(0.02, 0.95, label, transform=left.transAxes, ha="left", va="top",
+                  fontsize=12, color=("black" if keep[j] else _EXCL["color"]))
         # per-scan E0 + edge step (no box)
         left.text(0.65, 0.32, rf"$E_0 = {e0j:.2f}$ eV" "\n" rf"$\Delta\mu_0 = {g.edge_step:.3f}$",
                   transform=left.transAxes, ha="left", va="center", fontsize=12)
@@ -123,41 +137,48 @@ def plot_norm_fits(energy, groups, names, e0s, e0_merged=None, fig=None):
         Line2D([0], [0], color=_C_FLAT, lw=1.6, label=r"flattened $\mu(E)$"),
     ]
     fig.legend(handles=handles, loc="center", ncol=4, bbox_to_anchor=(0.5, 1 - 0.44 * header / height))
-    stats = rf"$\langle E_0 \rangle = {e0s.mean():.2f} \pm {e0s.std():.2f}$ eV  (per scan, $n={n}$)"
+    kept = e0s[keep]
+    stats = (rf"$\langle E_0 \rangle = {kept.mean():.2f} \pm {kept.std():.2f}$ eV  "
+             rf"(per scan, $n={int(keep.sum())}$")
+    n_excl = int((~keep).sum())
+    stats += rf", {n_excl} excl.)" if n_excl else ")"
     if e0_merged is not None:
         stats += rf"        $E_0^{{\rm merged}} = {e0_merged:.2f}$ eV"
     fig.text(0.5, 1 - 0.74 * header / height, stats, ha="center", va="center", fontsize=12)
     return fig
 
 
-def plot_flat_overlay(energy, groups, names, merged=None, ax=None):
+def plot_flat_overlay(energy, groups, names, merged=None, scan_pass=None, ax=None):
     """All flattened/normalized scans overlaid, with the merged (E-space) spectrum."""
     ax = ax or plt.gca()
-    for g in groups:
-        ax.plot(energy, g.flat, **_SCAN)
+    keep = _pass_mask(len(groups), scan_pass)
+    for j, g in enumerate(groups):
+        ax.plot(energy, g.flat, **(_SCAN if keep[j] else _EXCL))
     if merged is not None:
         ax.plot(energy, merged.flat, **_MERGED)
     ax.axhline(1.0, color="0.7", lw=0.8, ls=":")
     ax.set(xlabel="Energy (eV)", ylabel=r"flattened $\mu(E)$", title="Flattened scans")
-    _overlay_legend(ax, len(names), merged=merged is not None)
+    _overlay_legend(ax, int(keep.sum()), int((~keep).sum()), merged=merged is not None)
     return _finish(ax)
 
 
-def plot_exafs(energy, groups, names, e0, merged=None, kweight=3, fig=None):
+def plot_exafs(energy, groups, names, e0, merged=None, kweight=3, scan_pass=None, fig=None):
     """Left: normalized μ + AUTOBK background per scan. Right: kⁿ·χ(k) per scan.
 
     The bold ``merged`` trace is the E-space merge carried through (pre_edge + AUTOBK
-    on the mean μ), so its χ(k) is *not* the mean of the per-scan χ(k).
+    on the mean μ), so its χ(k) is *not* the mean of the per-scan χ(k). QC-excluded scans
+    are drawn faint red.
     """
     fig = fig or plt.figure(figsize=(10.5, 3.8))
     ax_bkg, ax_chi = fig.subplots(1, 2)
+    keep = _pass_mask(len(groups), scan_pass)
 
     def _norm_bkg(g):  # background in normalized-μ units
         return (g.bkg - g.pre_edge) / g.edge_step
 
     above = energy >= e0  # the region the spline actually models
-    for g in groups:
-        ax_bkg.plot(energy[above], g.norm[above], **_SCAN)  # per-scan normalized μ (spread)
+    for j, g in enumerate(groups):
+        ax_bkg.plot(energy[above], g.norm[above], **(_SCAN if keep[j] else _EXCL))
     if merged is not None:
         ax_bkg.plot(energy[above], merged.norm[above], label=r"merged $\mu$", **_MERGED)
         ax_bkg.plot(energy[above], _norm_bkg(merged)[above], color=_C_BKG, lw=1.8, ls="--", zorder=6, label="merged bkg")
@@ -166,13 +187,13 @@ def plot_exafs(energy, groups, names, e0, merged=None, kweight=3, fig=None):
     ax_bkg.legend(loc="lower right")
     _finish(ax_bkg)
 
-    for g in groups:
-        ax_chi.plot(g.k, g.k**kweight * g.chi, **_SCAN)
+    for j, g in enumerate(groups):
+        ax_chi.plot(g.k, g.k**kweight * g.chi, **(_SCAN if keep[j] else _EXCL))
     if merged is not None:
         ax_chi.plot(merged.k, merged.k**kweight * merged.chi, **_MERGED)
     ax_chi.axhline(0.0, color="0.7", lw=0.8, ls=":")
     ax_chi.set(xlabel=r"$k$ (Å$^{-1}$)", ylabel=rf"$k^{kweight}\,\chi(k)$", title=rf"EXAFS   $k^{kweight}\chi(k)$")
-    _overlay_legend(ax_chi, len(names), merged=merged is not None)
+    _overlay_legend(ax_chi, int(keep.sum()), int((~keep).sum()), merged=merged is not None)
     _finish(ax_chi)
     fig.tight_layout()
     return fig
@@ -182,20 +203,20 @@ def figure_report(bcr, params, kweight=3) -> list[tuple[str, Figure]]:
     """Build all four processing figures for one file. Returns [(label, Figure), ...]."""
     from xasbatch.process import process_scans
 
-    # process_scans merges in E space and carries it through on one shared k-grid.
-    e0_merged, names, scan_mu, groups, scan_e0s, merged = process_scans(bcr, params)
+    # process_scans merges in E space (over QC-passing scans) on one shared k-grid.
+    e0_merged, names, scan_mu, groups, scan_e0s, merged, scan_pass = process_scans(bcr, params)
     energy = bcr.energy
 
     with plt.rc_context(_RC):
         f_raw = plt.figure(figsize=(8, 4.8))
-        plot_raw(energy, scan_mu, names, merged_mu=merged.mu, ax=f_raw.gca())
+        plot_raw(energy, scan_mu, names, merged_mu=merged.mu, scan_pass=scan_pass, ax=f_raw.gca())
 
-        f_norm = plot_norm_fits(energy, groups, names, scan_e0s, e0_merged=e0_merged)
+        f_norm = plot_norm_fits(energy, groups, names, scan_e0s, e0_merged=e0_merged, scan_pass=scan_pass)
 
         f_flat = plt.figure(figsize=(6.2, 4.2))
-        plot_flat_overlay(energy, groups, names, merged=merged, ax=f_flat.gca())
+        plot_flat_overlay(energy, groups, names, merged=merged, scan_pass=scan_pass, ax=f_flat.gca())
 
-        f_exafs = plot_exafs(energy, groups, names, e0_merged, merged=merged, kweight=kweight)
+        f_exafs = plot_exafs(energy, groups, names, e0_merged, merged=merged, kweight=kweight, scan_pass=scan_pass)
 
         for f in (f_raw, f_flat):
             f.tight_layout()

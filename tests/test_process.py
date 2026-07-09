@@ -45,11 +45,38 @@ def test_channel_mode(bcr):
 
 def test_both_mode_shares_kgrid(bcr):
     result = process_batch(bcr, Params(mode="both"))
-    assert result.scan is not None and result.channel is not None
+    assert result.scan is not None and result.channel is not None and result.merged is not None
     assert result.n_scans == N_SCANS and result.n_channels == N_CHANNELS
-    assert result.meta["modes_present"] == ["scan", "channel"]
-    # one kmax per file -> scan and channel blocks land on an IDENTICAL k-grid
+    assert result.meta["modes_present"] == ["scan", "channel", "merged"]
+    # one kmax per file -> scan, channel, and merged blocks land on an IDENTICAL k-grid
     np.testing.assert_array_equal(result.scan.k, result.channel.k)
+    np.testing.assert_array_equal(result.scan.k, result.merged.k)
+
+
+def test_qc_merged_block_and_scan_pass(bcr):
+    result = process_batch(bcr, Params(mode="scan"))
+    assert result.merged is not None and result.merged.n == 1  # single merged spectrum
+    assert result.scan_pass is not None and result.scan_pass.shape == (N_SCANS,)
+    assert result.scan_pass.all()  # clean fixture: every scan passes QC
+    assert result.meta["n_scans_used"] == N_SCANS
+    assert result.meta["n_scans_excluded"] == 0
+
+
+def test_range_gate_skips_file(bcr):
+    from xasbatch.process import SkipFile
+
+    # an absurd norm1 makes the post-edge window unreachable -> clean skip, not a crash
+    with pytest.raises(SkipFile):
+        process_batch(bcr, Params(mode="scan", norm1=100000.0))
+
+
+def test_e0_outlier_mask_is_robust():
+    from xasbatch.process import _e0_outlier_mask
+
+    e0 = np.array([7714.4, 7714.5, 7714.3, 7714.45, 7720.0])  # last >2 eV off the median
+    keep = _e0_outlier_mask(e0)
+    assert keep[:4].all()
+    assert not keep[4]
 
 
 def test_kgrid_is_uniform_kstep(bcr):

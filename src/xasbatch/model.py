@@ -42,6 +42,7 @@ class Params:
     mode: str = "scan"  # "scan" (sum each original file's channels) | "channel" | "both"
     e0: float | None = None  # explicit override; None -> detect (find_e0) or header E0_tab
     auto_e0: bool = True  # default: find_e0 once on the merged μ; False -> tabulated header E0_tab
+    qc: bool = True  # exclude QC-failing scans from the merge (still stored + flagged)
     # pre-edge / normalization (eV relative to e0). The spans default to the data
     # extremes (None); pinning only the offsets pre2/norm1 keeps the post-edge
     # polynomial fit across the whole range, which flattens far better than a
@@ -95,9 +96,11 @@ class BatchResult:
     """
 
     energy: np.ndarray  # (nE,)
-    e0: float
+    e0: float  # merged/representative e0 (of the mean-of-passing-scans μ)
     scan: ProcessBlock | None = None  # summed-per-original-file spectra (mode scan/both)
     channel: ProcessBlock | None = None  # per-column spectra (mode channel/both)
+    merged: ProcessBlock | None = None  # 1-column: mean of the QC-passing scans, processed
+    scan_pass: np.ndarray | None = None  # (nScans,) bool: included in the merge?
     meta: dict = field(default_factory=dict)
 
     @property

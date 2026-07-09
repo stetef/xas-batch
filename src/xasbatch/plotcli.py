@@ -35,6 +35,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--rbkg", type=float, default=d.rbkg, help="AUTOBK rbkg")
     p.add_argument("--kmin", type=float, default=d.kmin, help="χ(k) kmin")
     p.add_argument("--kmax", type=float, default=d.kmax, help="χ(k) kmax")
+    p.add_argument("--no-qc", dest="qc", action="store_false", help="disable QC (merge all scans)")
+    p.set_defaults(qc=True)
     return p
 
 
@@ -53,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
     params = Params(
         mode="scan", e0=args.e0, auto_e0=not args.header_e0,
         pre1=args.pre1, pre2=args.pre2, norm1=args.norm1, norm2=args.norm2, nnorm=args.nnorm,
-        rbkg=args.rbkg, kmin=args.kmin, kmax=args.kmax,
+        rbkg=args.rbkg, kmin=args.kmin, kmax=args.kmax, qc=args.qc,
     )
     bcr = load_combined_bcr(args.input)
     figs = figure_report(bcr, params, kweight=args.chi_kweight)

@@ -133,21 +133,19 @@ def process_channel(energy: np.ndarray, mu: np.ndarray, params: Params, e0: floa
     return group
 
 
-def resolve_e0(bcr: BcrData, params: Params) -> float:
-    """Resolve the edge energy once: explicit ``params.e0`` > header ``E0_tab`` > find_e0.
-
-    ``find_e0`` is used only when ``params.auto_e0`` is set, or as a last resort when
-    the header carries no tabulated edge.
-    """
+def _resolve_e0_for_mu(bcr: BcrData, params: Params, mu: np.ndarray) -> float:
+    """Edge energy for a given μ: explicit ``params.e0`` > find_e0 (default) > header."""
     if params.e0 is not None:
         return float(params.e0)
-
     header_e0 = bcr.meta.get("e0_tab")
     if params.auto_e0 or header_e0 is None:
-        # detect from the merged (mean) spectrum so a single noisy channel can't skew it,
-        # searching around the tabulated header edge as a robust guess
-        return find_edge(bcr.energy, bcr.mu.mean(axis=1), e0_guess=header_e0)
+        return find_edge(bcr.energy, mu, e0_guess=header_e0)
     return float(header_e0)
+
+
+def resolve_e0(bcr: BcrData, params: Params) -> float:
+    """Resolve the representative edge energy on the mean-of-channels μ (high-SNR)."""
+    return _resolve_e0_for_mu(bcr, params, bcr.mu.mean(axis=1))
 
 
 def resolve_scan_e0s(bcr: BcrData, params: Params, scan_mu: np.ndarray) -> np.ndarray:
@@ -168,51 +166,37 @@ def resolve_scan_e0s(bcr: BcrData, params: Params, scan_mu: np.ndarray) -> np.nd
     )
 
 
+def _stack_groups(names: list[str], groups: list[Group], e0s: np.ndarray, ft: bool) -> ProcessBlock:
+    """Stack already-processed Larch groups (shared k-grid) into a :class:`ProcessBlock`."""
+    k_ref = np.asarray(groups[0].k, dtype=float)
+    for g, name in zip(groups, names):
+        if np.asarray(g.k).shape != k_ref.shape:
+            raise ValueError(
+                f"{name!r} returned k of length {np.asarray(g.k).shape[0]}, expected "
+                f"{k_ref.shape[0]}; shared-grid assumption violated."
+            )
+    return ProcessBlock(
+        names=list(names),
+        flat=np.column_stack([np.asarray(g.flat, dtype=float) for g in groups]),
+        k=k_ref,
+        chi=np.column_stack([np.asarray(g.chi, dtype=float) for g in groups]),
+        edge_step=np.asarray([float(g.edge_step) for g in groups], dtype=float),
+        e0=np.asarray(e0s, dtype=float).copy(),
+        r=np.asarray(groups[0].r, dtype=float) if ft else None,
+        chir_mag=np.column_stack([np.asarray(g.chir_mag, dtype=float) for g in groups]) if ft else None,
+    )
+
+
 def _process_matrix(
     energy: np.ndarray, mu_matrix: np.ndarray, names: list[str], params: Params, e0s
 ) -> ProcessBlock:
-    """Process each column of ``mu_matrix`` (each with its own ``e0s[j]``) and stack.
-
-    ``e0s`` is a per-column array of edge energies (all-equal when a single e0 is
-    shared). Every column still lands on the same uniform k-grid.
-    """
+    """Process each column of ``mu_matrix`` (each with its own ``e0s[j]``) and stack."""
     e0s = np.atleast_1d(np.asarray(e0s, dtype=float))
     if e0s.size == 1:
         e0s = np.full(mu_matrix.shape[1], float(e0s[0]))
-    flat_cols, chi_cols, edge_steps = [], [], []
-    k_ref = r_ref = None
-    chir_cols = [] if params.ft else None
-
-    for j in range(mu_matrix.shape[1]):
-        group = process_channel(energy, mu_matrix[:, j], params, float(e0s[j]))
-
-        if k_ref is None:
-            k_ref = np.asarray(group.k, dtype=float)
-        elif group.k.shape != k_ref.shape:
-            raise ValueError(
-                f"{names[j]!r} returned k of length {group.k.shape[0]}, expected "
-                f"{k_ref.shape[0]}; shared-grid assumption violated."
-            )
-
-        flat_cols.append(np.asarray(group.flat, dtype=float))
-        chi_cols.append(np.asarray(group.chi, dtype=float))
-        edge_steps.append(float(group.edge_step))
-
-        if params.ft:
-            if r_ref is None:
-                r_ref = np.asarray(group.r, dtype=float)
-            chir_cols.append(np.asarray(group.chir_mag, dtype=float))
-
-    return ProcessBlock(
-        names=list(names),
-        flat=np.column_stack(flat_cols),
-        k=k_ref,
-        chi=np.column_stack(chi_cols),
-        edge_step=np.asarray(edge_steps, dtype=float),
-        e0=e0s.copy(),
-        r=r_ref,
-        chir_mag=np.column_stack(chir_cols) if params.ft else None,
-    )
+    groups = [process_channel(energy, mu_matrix[:, j], params, float(e0s[j]))
+              for j in range(mu_matrix.shape[1])]
+    return _stack_groups(names, groups, e0s, params.ft)
 
 
 def _sum_scans(bcr: BcrData) -> tuple[list[str], np.ndarray, list[dict]]:
@@ -230,59 +214,130 @@ def _sum_scans(bcr: BcrData) -> tuple[list[str], np.ndarray, list[dict]]:
     return names, np.column_stack(cols), members
 
 
-def process_scans(bcr: BcrData, params: Params):
-    """Process the per-scan summed spectra (each with its own e0), keeping the groups.
+class SkipFile(Exception):
+    """Raised when a file cannot be sensibly processed (e.g. too little post-edge range).
 
-    Returns ``(e0_merged, names, scan_mu, groups, scan_e0s, merged)``: ``scan_mu`` is the
-    raw summed μ(E) per scan (nE×nScans), ``groups`` are the processed Larch groups (with
-    ``.pre_edge/.post_edge/.norm/.flat/.bkg/.k/.chi``), ``scan_e0s`` is the per-scan e0,
-    ``e0_merged`` is e0 of the mean-of-scans μ, and ``merged`` is that mean-μ spectrum
-    processed through the same pipeline. All share one k-grid (resolved kmax). Used by the
-    plotting layer, which needs the intermediate fit curves ``process_batch`` discards.
+    The batch runner records these as ``skipped`` rather than ``error`` — a clean,
+    expected outcome, not a crash.
     """
-    e0_merged = resolve_e0(bcr, params)
-    names, scan_mu, _ = _sum_scans(bcr)
+
+
+# QC thresholds for the robust per-scan e0 outlier test.
+_E0_MAD_K = 5.0  # keep within this many robust-σ of the median ...
+_E0_FLOOR = 2.0  # ... but never flag anything within this many eV (σ can be ~0.08)
+_RANGE_MARGIN = 20.0  # required post-edge span beyond norm1 (eV) for a usable fit
+
+
+def _e0_outlier_mask(e0s: np.ndarray) -> np.ndarray:
+    """Robust keep-mask: True where e0 is within max(K·MAD, floor) of the median.
+
+    Robust (median/MAD + an absolute floor), not 3σ — the per-scan σ is ~0.08 eV, so a
+    plain 3σ would flag normal scatter; only genuinely mis-picked edges should drop.
+    """
+    med = float(np.median(e0s))
+    mad = float(np.median(np.abs(e0s - med)))
+    thresh = max(_E0_MAD_K * 1.4826 * mad, _E0_FLOOR)
+    return np.abs(e0s - med) <= thresh
+
+
+def _scan_finite_ok(group: Group) -> bool:
+    """Deterministic gate: normalization/spline produced finite, real results."""
+    return (
+        np.isfinite(group.edge_step)
+        and float(group.edge_step) > 0.0
+        and np.isfinite(group.flat).all()
+        and np.isfinite(group.chi).all()
+    )
+
+
+def _process_scan_set(bcr: BcrData, params: Params):
+    """Core per-scan pipeline with QC + E-space merge over the passing scans.
+
+    Returns a dict with: names, scan_mu, members, scan_e0s, groups, scan_pass (bool),
+    reasons (list[str] per scan), merged (Group), e0_merged, eff (resolved Params).
+    Raises :class:`SkipFile` if the file lacks enough post-edge range to normalize.
+    """
+    names, scan_mu, members = _sum_scans(bcr)
+    n = len(names)
     scan_e0s = resolve_scan_e0s(bcr, params, scan_mu)
-    eff = _effective_params(bcr.energy, params, [e0_merged, *scan_e0s])
-    groups = [
-        process_channel(bcr.energy, scan_mu[:, j], eff, float(scan_e0s[j]))
-        for j in range(scan_mu.shape[1])
-    ]
-    merged = process_channel(bcr.energy, scan_mu.mean(axis=1), eff, e0_merged)
-    return e0_merged, names, scan_mu, groups, scan_e0s, merged
+
+    # file-level range gate: need a usable post-edge window above the edge
+    e0_ref = float(np.median(scan_e0s))
+    span = float(bcr.energy.max()) - e0_ref
+    if params.qc and span < params.norm1 + _RANGE_MARGIN:
+        raise SkipFile(
+            f"insufficient post-edge range: {span:.0f} eV above e0≈{e0_ref:.0f} "
+            f"(need ≥ norm1+{_RANGE_MARGIN:.0f} = {params.norm1 + _RANGE_MARGIN:.0f} eV)"
+        )
+
+    reasons: list[list[str]] = [[] for _ in range(n)]
+    e0_keep = _e0_outlier_mask(scan_e0s) if params.qc else np.ones(n, dtype=bool)
+    for j in np.where(~e0_keep)[0]:
+        reasons[j].append("e0_outlier")
+
+    # one shared k-grid, then process every scan (failing ones kept + flagged, not dropped)
+    eff = _effective_params(bcr.energy, params, scan_e0s)
+    groups = [process_channel(bcr.energy, scan_mu[:, j], eff, float(scan_e0s[j])) for j in range(n)]
+    finite_keep = np.array([_scan_finite_ok(g) for g in groups]) if params.qc else np.ones(n, bool)
+    for j in np.where(~finite_keep)[0]:
+        reasons[j].append("nonfinite_or_bad_edge_step")
+
+    scan_pass = e0_keep & finite_keep
+    use = scan_pass if scan_pass.any() else np.ones(n, dtype=bool)  # fallback: none passed
+    merged_mu = scan_mu[:, use].mean(axis=1)
+    e0_merged = _resolve_e0_for_mu(bcr, params, merged_mu)
+    merged = process_channel(bcr.energy, merged_mu, eff, e0_merged)
+
+    return {
+        "names": names, "scan_mu": scan_mu, "members": members, "scan_e0s": scan_e0s,
+        "groups": groups, "scan_pass": scan_pass, "reasons": reasons,
+        "merged": merged, "e0_merged": e0_merged, "eff": eff,
+    }
+
+
+def process_scans(bcr: BcrData, params: Params):
+    """Per-scan pipeline for the plotting layer, keeping the full Larch groups.
+
+    Returns ``(e0_merged, names, scan_mu, groups, scan_e0s, merged, scan_pass)``. See
+    :func:`_process_scan_set`; ``merged`` is the mean-of-passing-scans μ processed on the
+    shared k-grid, and ``scan_pass`` flags which scans were included in that merge.
+    """
+    ss = _process_scan_set(bcr, params)
+    return (ss["e0_merged"], ss["names"], ss["scan_mu"], ss["groups"],
+            ss["scan_e0s"], ss["merged"], ss["scan_pass"])
 
 
 def process_batch(bcr: BcrData, params: Params) -> BatchResult:
-    """Process one file into a ``scan`` and/or ``channel`` block on a shared e0.
+    """Process one file into ``scan`` / ``channel`` / ``merged`` blocks.
 
-    ``params.mode`` selects which:
-      - ``"scan"`` (default): sum each original file's channels → one μ(E) per scan.
-      - ``"channel"``: process every μ column individually.
-      - ``"both"``: compute and store both blocks in the one result.
+    ``params.mode`` selects which per-spectrum blocks are computed ("scan" default,
+    "channel", or "both"). In scan/both mode a ``merged`` block (mean of the QC-passing
+    scans, processed through the same pipeline) is always produced — the clean target.
 
-    e0 handling: the ``scan`` block gets a **per-scan** e0 (each summed scan is high-SNR
-    enough for its own ``find_e0``); the ``channel`` block uses the **merged** e0 (shared)
-    since per-channel e0 is biased. ``e0_merged`` (e0 of the mean-of-scans μ) is the
-    top-level representative value. All columns still land on the same uniform k-grid.
+    e0: the ``scan`` block gets a **per-scan** e0; the ``channel`` block uses the
+    **merged** e0 (per-channel e0 is biased). With ``params.qc`` (default), scans failing
+    QC (robust e0 outlier, or non-finite normalization/spline) are excluded from the merge
+    but still stored and flagged in ``scan_pass``; a file with too little post-edge range
+    raises :class:`SkipFile`.
     """
     if params.mode not in ("scan", "channel", "both"):
         raise ValueError(f"invalid mode {params.mode!r}; expected scan|channel|both.")
 
-    e0_merged = resolve_e0(bcr, params)
-
-    scan_block = channel_block = None
-    scan_members = scan_e0s = None
-    names = scan_mu = None
-    if params.mode in ("scan", "both"):
-        names, scan_mu, scan_members = _sum_scans(bcr)
-        scan_e0s = resolve_scan_e0s(bcr, params, scan_mu)
-
-    # one kmax per file (from the highest e0) so every block shares an identical k-grid
-    e0_pool = [e0_merged] + ([] if scan_e0s is None else list(scan_e0s))
-    eff = _effective_params(bcr.energy, params, e0_pool)
+    scan_block = channel_block = merged_block = None
+    scan_members = scan_e0s = scan_pass = None
+    reasons = None
 
     if params.mode in ("scan", "both"):
-        scan_block = _process_matrix(bcr.energy, scan_mu, names, eff, scan_e0s)
+        ss = _process_scan_set(bcr, params)
+        scan_members, scan_e0s, scan_pass = ss["members"], ss["scan_e0s"], ss["scan_pass"]
+        reasons = ss["reasons"]
+        eff, e0_merged = ss["eff"], ss["e0_merged"]
+        scan_block = _stack_groups(ss["names"], ss["groups"], scan_e0s, params.ft)
+        merged_block = _stack_groups(["merged"], [ss["merged"]], np.array([e0_merged]), params.ft)
+    else:
+        e0_merged = resolve_e0(bcr, params)
+        eff = _effective_params(bcr.energy, params, [e0_merged])
+
     if params.mode in ("channel", "both"):
         channel_block = _process_matrix(bcr.energy, bcr.mu, bcr.channel_names, eff, e0_merged)
 
@@ -295,17 +350,27 @@ def process_batch(bcr: BcrData, params: Params) -> BatchResult:
         if params.e0 is not None
         else ("find_e0" if (params.auto_e0 or bcr.meta.get("e0_tab") is None) else "header_e0_tab")
     )
-    if scan_e0s is not None:
-        meta["e0_scan_mean"] = float(np.mean(scan_e0s))
-        meta["e0_scan_std"] = float(np.std(scan_e0s))
     meta["mode"] = params.mode
     meta["n_channels_raw"] = bcr.n_channels
     meta["modes_present"] = [
-        name for name, blk in (("scan", scan_block), ("channel", channel_block)) if blk is not None
+        name
+        for name, blk in (("scan", scan_block), ("channel", channel_block), ("merged", merged_block))
+        if blk is not None
     ]
+    if scan_e0s is not None:
+        kept = scan_e0s[scan_pass] if scan_pass.any() else scan_e0s
+        meta["e0_scan_mean"] = float(np.mean(kept))
+        meta["e0_scan_std"] = float(np.std(kept))
+        meta["n_scans_total"] = int(len(scan_e0s))
+        meta["n_scans_used"] = int(scan_pass.sum())
+        meta["n_scans_excluded"] = int((~scan_pass).sum())
+        meta["scan_qc_reasons"] = {
+            scan_members[j]["name"]: reasons[j] for j in range(len(reasons)) if reasons[j]
+        }
     if scan_members is not None:
         meta["scan_members"] = scan_members
 
     return BatchResult(
-        energy=bcr.energy, e0=e0_merged, scan=scan_block, channel=channel_block, meta=meta
+        energy=bcr.energy, e0=e0_merged, scan=scan_block, channel=channel_block,
+        merged=merged_block, scan_pass=scan_pass, meta=meta,
     )

@@ -132,9 +132,17 @@ alone is small.
 ## Output (`.npz` per file)
 
 One `<sample>.npz` (or, in a tree run, the source basename with `.bcr.combined` →
-`.npz`). Shared `energy`, `e0` (merged), `meta_json`; then namespaced `scan_*` and/or
-`channel_*` arrays (`_names/_flat/_k/_chi/_edge_step/_e0`, plus `_r/_chir_mag` with
-`--ft`). `scan_e0` is per scan; `channel_e0` is the shared merged value.
+`.npz`). Shared `energy`, `e0` (merged), `meta_json`; then namespaced `scan_*`,
+`channel_*`, and/or `merged_*` arrays (`_names/_flat/_k/_chi/_edge_step/_e0`, plus
+`_r/_chir_mag` with `--ft`), and `scan_pass`. `scan_e0` is per scan; `channel_e0` is the
+shared merged value; the `merged` block (1 column) is the mean of the QC-passing scans
+processed the same way — the clean denoising target.
+
+**QC before the merge** (`params.qc`, default on): scans failing a robust e0-outlier test
+(`|e0−median| > max(5·MAD, 2 eV)`, not 3σ — σ is ~0.08 eV) or a non-finite-result check
+are excluded from the merge but still stored and flagged in `scan_pass`; reasons/counts
+go to `meta` and the catalog. A file with too little post-edge range raises `SkipFile`
+and is recorded as **skipped** (a distinct status from `error`), never a garbage npz.
 
 **One file, namespaced blocks — not `.scan.npz`/`.channel.npz`.** Keeps one artifact
 and one catalog row per source, and lets downstream code load one file and pick a block.

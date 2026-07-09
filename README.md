@@ -102,12 +102,24 @@ declares it explicitly: `uv sync --extra plot`.)
 
 ## Output layout
 
-One `<sample>.npz` per file: shared `energy`, `e0`, JSON `meta_json`; plus a `scan_*`
-and/or `channel_*` block:
+One `<sample>.npz` per file: shared `energy`, `e0`, JSON `meta_json`; plus `scan_*`,
+`channel_*`, and/or `merged_*` blocks (the `merged` block is the clean denoising target —
+the mean of the QC-passing scans, processed the same way):
 
     <prefix>_names, <prefix>_flat (nE×n), <prefix>_k, <prefix>_chi (nk×n),
     <prefix>_edge_step, <prefix>_e0   (per-column e0: per-scan for scan, merged for channel)
     (+ <prefix>_r / <prefix>_chir_mag when --ft is given)
+    scan_pass (nScans bool)           # which scans were included in the merge
+
+## Quality control
+
+By default (`--no-qc` to disable), scans are QC-gated before the merge — a scan is
+excluded (still stored + flagged in `scan_pass`, never silently) if its `find_e0` is a
+robust outlier or its normalization/spline is non-finite. Files with too little
+post-edge range to normalize (`Emax − e0 < norm1 + 20`) are **skipped** with a recorded
+reason rather than producing a garbage npz. Counts/reasons land in `meta` and the
+catalog (`n_scans_used/excluded`, `scan_qc_reasons`), and excluded scans show faint red
+in the plots.
 
 `meta` records `mode`, `modes_present`, `n_channels_raw`, `e0_used`/`e0_source`, and
 `scan_members`.

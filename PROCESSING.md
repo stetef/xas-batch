@@ -130,6 +130,32 @@ the merged, and every channel. So they all share an **identical** k-grid
 shifts by the tiny per-scan e0 spread (~0.08 eV). Recorded as `kmax_used` in `meta`. (An
 explicit `--kmax` is used verbatim instead.)
 
+## Quality control & the merge
+
+With `params.qc` (default on), scans are gated before the E-space merge so a bad scan
+can't pollute the target. Failing scans are **still processed and stored** (in the
+`scan` block, flagged by `scan_pass`) — they're only excluded from the merge, and never
+silently: counts + reasons go to `meta` (`n_scans_used/excluded`, `scan_qc_reasons`),
+the catalog, and the plots (excluded scans drawn faint red).
+
+Gates:
+
+- **File range (hard skip):** if the post-edge window can't exist — `Emax − e0 < norm1 +
+  20 eV` — the file raises `SkipFile` and is recorded as **skipped** (not a crash, not a
+  garbage npz). This catches short XANES-only scans (e.g. a La K-edge file with ~105 eV
+  above the edge).
+- **Non-finite result:** a scan whose `edge_step` is ≤ 0 / non-finite, or whose
+  `flat`/`chi` contain NaN/Inf (blown-up fit), is excluded.
+- **e0 outlier (robust):** a scan is excluded if `|e0 − median(e0)| > max(5·MAD, 2 eV)`.
+  This is deliberately **not** 3σ — the per-scan σ is ~0.08 eV, so 3σ (~0.24 eV) would
+  flag normal scatter; the robust MAD + a 2 eV floor drops only genuinely mis-picked
+  edges. (FF channels carry no NaNs in this dataset, so no input-coverage gate is needed;
+  the non-finite-result gate catches any downstream blow-ups.)
+
+The **merged** spectrum is then the mean of the *passing* scans' μ, run through the same
+`pre_edge`+`autobk` on the shared k-grid, and stored as a 1-column `merged` block — the
+clean denoising target. `--no-qc` disables exclusion (merges every scan).
+
 ## Step 3 — `xftf` (optional forward FT)
 
 With `--ft`, χ(k) is Fourier-transformed to χ(R): `k`-window `[ft_kmin, ft_kmax]`
@@ -160,6 +186,7 @@ backgrounds differ.)
 | `kweight` | 1 | autobk | k-weight for the background-fit FFT |
 | `kstep` | 0.05 | autobk | χ(k) k-grid step (Å⁻¹) |
 | `ft`, `ft_kmin`, `ft_kmax`, `ft_kweight`, `ft_dk` | off, 3, 12, 2, 5 | xftf | optional forward FT |
+| `qc` | True | merge | exclude QC-failing scans from the merge (`--no-qc` to disable) |
 
 ## Seeing it
 
