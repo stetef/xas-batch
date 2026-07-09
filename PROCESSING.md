@@ -90,18 +90,26 @@ amplitude**, because they set `edge_step`. **Flattening does not** — it never 
 
 ## e0
 
-Resolved once per file (`resolve_e0`), order: explicit `Params.e0` > header `E0_tab` >
-`find_e0`. `find_e0` runs only with `--auto-e0` (or if the header lacks a tabulated
-edge), detecting from the mean column so one noisy channel can't skew it.
+Resolved once per file (`resolve_e0`), order: explicit `Params.e0` > `find_e0` (default) >
+header `E0_tab`. By **default** `find_e0` detects the edge from the **merged (mean)
+spectrum** — the highest-SNR estimate, so one noisy channel can't skew it. `--header-e0`
+switches to the tabulated value instead, and `--e0` forces a specific value.
 
+- **Why `find_e0`, not the header, by default?** The header `E0_tab` (7709 eV for Co K)
+  is the *reference foil's* tabulated calibration energy, used upstream to align the
+  energy axis — not this sample's edge. `find_e0` returns the sample's own derivative-max
+  (≈7714 on Co3NK_s), which is the more appropriate origin for that sample's EXAFS. (The
+  ~5 eV difference is expected, not an error.)
+- **Why once per file (shared), not per scan?** The scans are the *same sample*, already
+  energy-calibrated onto a shared grid, so there is physically one edge. Estimating it
+  once on the merged spectrum is more robust than per-scan `find_e0`, which would add
+  noise-level scatter to each scan's k-origin and slightly mis-register the χ(k) you
+  stack/merge. `edge_step`, by contrast, **is** per scan — each scan is normalized by its
+  own edge jump at the shared e0 (standard).
 - **e0 is fixed during splining — it does not float.** It sets the k-axis origin and the
-  edge-step reference, and is held at the chosen value through `pre_edge` and `autobk`.
-  The floating ΔE0 you may know from **FEFF/path fitting** is a *downstream* fit
-  parameter (out of scope here); if you fit paths later, that ΔE0 harmlessly absorbs the
-  offset between whatever e0 you extracted with and the theory alignment.
-- Default is the tabulated header `E0_tab` (deterministic; the files are calibrated).
-  `find_e0` returns the derivative-max, which for Co sits ~5 eV **above** the tabulated
-  onset (≈7714 vs 7709 on Co3NK_s) — expected, not an error.
+  edge-step reference, held constant through `pre_edge` and `autobk`. The floating ΔE0
+  you may know from **FEFF/path fitting** is a *downstream* fit parameter (out of scope
+  here); if you fit paths later, that ΔE0 harmlessly absorbs the extraction-e0 choice.
 
 Because a single e0 (+ shared energy grid + `kstep`) is reused for every spectrum in a
 file, all χ(k) land on an **identical k-grid** — which is what lets them stack into a
@@ -127,8 +135,8 @@ backgrounds differ.)
 | param | default | step | role |
 |---|---|---|---|
 | `mode` | `scan` | — | `scan` (sum each file's channels) / `channel` / `both` |
-| `e0` | `None` | e0 | force edge energy; `None` → header `E0_tab` |
-| `auto_e0` | `False` | e0 | detect e0 via `find_e0` instead of the header |
+| `e0` | `None` | e0 | force edge energy; `None` → detect/tabulated per `auto_e0` |
+| `auto_e0` | `True` | e0 | `find_e0` on the merged μ (default); `False` → header `E0_tab` |
 | `pre1`, `pre2` | None(file start), −50 | pre_edge | pre-edge fit window (eV rel. e0) |
 | `norm1`, `norm2` | 150, None(file end) | pre_edge | post-edge fit window (eV rel. e0) |
 | `nnorm` | 2 | pre_edge | post-edge polynomial degree |

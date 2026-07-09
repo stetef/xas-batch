@@ -82,17 +82,17 @@ def test_edge_step_positive(bcr):
     assert np.all(result.channel.edge_step > 0)
 
 
-def test_e0_defaults_to_header(bcr):
-    result = process_batch(bcr, Params())
-    assert result.meta["e0_source"] == "header_e0_tab"
-    assert result.e0 == pytest.approx(7709.0)
-
-
-def test_auto_e0_near_header(bcr):
-    result = process_batch(bcr, Params(auto_e0=True))
+def test_e0_defaults_to_find_e0(bcr):
+    result = process_batch(bcr, Params())  # default is find_e0 on the merged μ
     assert result.meta["e0_source"] == "find_e0"
     # find_e0 returns the derivative-max, a few eV ABOVE the tabulated edge (7709).
     assert 7709.0 <= result.e0 <= 7729.0
+
+
+def test_header_e0_when_requested(bcr):
+    result = process_batch(bcr, Params(auto_e0=False))
+    assert result.meta["e0_source"] == "header_e0_tab"
+    assert result.e0 == pytest.approx(7709.0)
 
 
 def test_explicit_e0_overrides(bcr):

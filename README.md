@@ -94,8 +94,9 @@ declares it explicitly: `uv sync --extra plot`.)
 ## Options
 
 - `--mode {scan,channel,both}` — see above.
-- `--e0 FLOAT` — force the edge energy; `--auto-e0` — detect via `find_e0` instead of
-  the header `E0_tab` (the default).
+- `--e0 FLOAT` — force the edge energy. By default e0 is detected once per file via
+  `find_e0` on the merged spectrum; `--header-e0` uses the tabulated header `E0_tab`
+  instead.
 - `--kweight`, `--kmin`, `--kmax`, `--rbkg`, `--kstep` — AUTOBK / χ(k) knobs.
 - `--ft` — also compute the forward FT (χ(R)).
 

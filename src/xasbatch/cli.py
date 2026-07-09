@@ -23,9 +23,9 @@ def add_param_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     e = p.add_mutually_exclusive_group()
     e.add_argument("--e0", type=float, default=None, help="force edge energy (eV) for all channels")
     e.add_argument(
-        "--auto-e0",
+        "--header-e0",
         action="store_true",
-        help="detect e0 per file via find_e0 (default: trust header E0_tab)",
+        help="use the tabulated header E0_tab instead of find_e0 (default: find_e0 on the merged μ)",
     )
     p.add_argument("--pre1", type=float, default=d.pre1, help="pre-edge fit start, eV rel. e0 (default: file start)")
     p.add_argument("--pre2", type=float, default=d.pre2, help=f"pre-edge fit end, eV rel. e0 (default: {d.pre2})")
@@ -71,7 +71,7 @@ def params_from_args(args: argparse.Namespace) -> Params:
     return Params(
         mode=args.mode,
         e0=args.e0,
-        auto_e0=args.auto_e0,
+        auto_e0=not args.header_e0,
         pre1=args.pre1,
         pre2=args.pre2,
         norm1=args.norm1,

@@ -97,22 +97,22 @@ results, asserting every column returns the same-length `k`.
 
 ### e0 is resolved once per file
 
-Resolution order (`resolve_e0`): explicit `Params.e0` > header `E0_tab` > `find_e0`.
-`find_e0` runs only with `--auto-e0`, or as a last resort when the header has no
-tabulated edge; it detects from the **mean** column so one noisy channel can't skew it.
+Resolution order (`resolve_e0`): explicit `Params.e0` > `find_e0` (default) > header
+`E0_tab`. By default `find_e0` detects from the **merged (mean)** spectrum so one noisy
+channel can't skew it; `--header-e0` uses the tabulated value instead.
 
 The shared e0 is what makes the aligned k-grid a *guarantee*, not an assumption: same
 energy + e0 + kstep → identical `k` for every spectrum, and even the `scan` and
-`channel` blocks share it.
+`channel` blocks share it. e0 is shared per file (not per scan) because the scans are
+the same, already-calibrated sample — `edge_step`, though, is per scan.
 
-> **Why header `E0_tab` by default, not `find_e0`?** The files are already calibrated,
-> so the tabulated edge is meaningful and deterministic. `find_e0` returns the
-> derivative-max, which for Co sits ~5 eV *above* the tabulated onset (confirmed 7714.4
-> vs 7709.0 on the full Co3NK_s file). That offset is not an error — it's the difference
-> between "steepest point" and "tabulated edge." E0 does **not** float during splining;
-> the floating ΔE0 you may be thinking of belongs to downstream FEFF/path fitting, which
-> is out of scope here. If you later fit paths, the fitted ΔE0 harmlessly absorbs this
-> ~5 eV extraction-E0 choice.
+> **Why `find_e0` by default, not the header?** The header `E0_tab` (7709 for Co K) is
+> the *reference foil's* calibration energy, not this sample's edge. `find_e0` returns
+> the sample's derivative-max (≈7714 on Co3NK_s) — the more appropriate EXAFS origin.
+> The ~5 eV difference is expected (steepest-point vs tabulated edge), not an error. E0
+> does **not** float during splining; the floating ΔE0 you may be thinking of belongs to
+> downstream FEFF/path fitting (out of scope) and harmlessly absorbs this choice. See
+> [PROCESSING.md](PROCESSING.md) for the full rationale.
 
 ### Modes (`--mode`, default `scan`)
 

@@ -25,7 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--show", action="store_true", help="show interactively instead of saving PNGs")
     # processing knobs (edge/normalization/spline)
     p.add_argument("--e0", type=float, default=None, help="force edge energy (eV)")
-    p.add_argument("--auto-e0", action="store_true", help="detect e0 via find_e0 (default: header E0_tab)")
+    p.add_argument("--header-e0", action="store_true", help="use tabulated header E0_tab instead of find_e0")
     d = Params()
     p.add_argument("--pre1", type=float, default=d.pre1, help="pre-edge fit start, eV rel. e0 (default: file start)")
     p.add_argument("--pre2", type=float, default=d.pre2, help=f"pre-edge fit end, eV rel. e0 (default: {d.pre2})")
@@ -51,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     from xasbatch.plotting import figure_report
 
     params = Params(
-        mode="scan", e0=args.e0, auto_e0=args.auto_e0,
+        mode="scan", e0=args.e0, auto_e0=not args.header_e0,
         pre1=args.pre1, pre2=args.pre2, norm1=args.norm1, norm2=args.norm2, nnorm=args.nnorm,
         rbkg=args.rbkg, kmin=args.kmin, kmax=args.kmax,
     )

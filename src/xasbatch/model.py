@@ -40,8 +40,8 @@ class Params:
     """
 
     mode: str = "scan"  # "scan" (sum each original file's channels) | "channel" | "both"
-    e0: float | None = None  # explicit override; None -> use header E0_tab (or auto if auto_e0)
-    auto_e0: bool = False  # when True and e0 is None, detect once via find_e0
+    e0: float | None = None  # explicit override; None -> detect (find_e0) or header E0_tab
+    auto_e0: bool = True  # default: find_e0 once on the merged μ; False -> tabulated header E0_tab
     # pre-edge / normalization (eV relative to e0). The spans default to the data
     # extremes (None); pinning only the offsets pre2/norm1 keeps the post-edge
     # polynomial fit across the whole range, which flattens far better than a
