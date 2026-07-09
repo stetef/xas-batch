@@ -23,6 +23,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from dataclasses import asdict
 from pathlib import Path
 
@@ -47,6 +48,19 @@ def env_get(values: dict, key: str, default=None):
     if val is None or val == "":
         val = os.environ.get(key)
     return val if (val is not None and val != "") else default
+
+
+# ---------------------------------------------------------------------- format
+def fmt_duration(seconds: float) -> str:
+    """Human-readable elapsed time, e.g. ``1h 23m 45s`` / ``2m 03s`` / ``12.4s``."""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    s = int(round(seconds))
+    h, rem = divmod(s, 3600)
+    m, sec = divmod(rem, 60)
+    if h:
+        return f"{h}h {m:02d}m {sec:02d}s"
+    return f"{m}m {sec:02d}s"
 
 
 # ----------------------------------------------------------------- output paths
@@ -176,6 +190,7 @@ def main(argv: list[str] | None = None) -> int:
             err += 1
             tqdm.write(f"FAIL  {Path(rec['source_path']).name}: {rec['error']}")
 
+    t0 = time.perf_counter()
     if not tasks:
         print("nothing to do.")
     elif args.jobs > 1 and len(tasks) > 1:
@@ -187,9 +202,12 @@ def main(argv: list[str] | None = None) -> int:
     else:
         for task in tqdm(tasks, desc="XAS"):
             handle(_process_one(task))
+    elapsed = time.perf_counter() - t0
 
+    total = catalog.add_elapsed(conn, elapsed) if tasks else catalog.total_elapsed(conn)
     conn.close()
     print(f"done: {ok} ok, {err} error, {skipped} skipped ({len(files)} total).")
+    print(f"time: {fmt_duration(elapsed)} this run | {fmt_duration(total)} cumulative (all runs).")
     return 1 if err else 0
 
 

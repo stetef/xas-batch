@@ -32,6 +32,10 @@ CREATE TABLE IF NOT EXISTS files (
     error        TEXT,
     updated_at   TEXT
 );
+CREATE TABLE IF NOT EXISTS run_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+);
 """
 
 COLUMNS = (
@@ -96,3 +100,24 @@ def counts(conn: sqlite3.Connection) -> dict[str, int]:
     """Return {status: count} across the whole catalog."""
     rows = conn.execute("SELECT status, COUNT(*) AS n FROM files GROUP BY status").fetchall()
     return {r["status"]: r["n"] for r in rows}
+
+
+def add_elapsed(conn: sqlite3.Connection, seconds: float) -> float:
+    """Add ``seconds`` of active processing time to the cumulative total; return the new total.
+
+    Accumulating per run means the total tracks real work across pauses and
+    restarts — idle time while the batch is stopped is never counted.
+    """
+    conn.execute(
+        "INSERT INTO run_meta (key, value) VALUES ('elapsed_s', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = CAST(value AS REAL) + excluded.value",
+        (float(seconds),),
+    )
+    conn.commit()
+    return total_elapsed(conn)
+
+
+def total_elapsed(conn: sqlite3.Connection) -> float:
+    """Cumulative active processing seconds recorded across all runs (0.0 if none)."""
+    row = conn.execute("SELECT value FROM run_meta WHERE key = 'elapsed_s'").fetchone()
+    return float(row["value"]) if row is not None else 0.0
