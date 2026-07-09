@@ -26,13 +26,14 @@ def _scan_colors(n: int):
     return plt.get_cmap("viridis")(np.linspace(0.0, 0.92, max(n, 1)))
 
 
-def plot_raw(energy, scan_mu, names, ax=None):
-    """Raw summed μ(E) (= Σ FF/I0) for each scan, with the average across scans."""
+def plot_raw(energy, scan_mu, names, merged_mu=None, ax=None):
+    """Raw summed μ(E) (= Σ FF/I0) per scan, with the E-space merge (mean μ)."""
     ax = ax or plt.gca()
     colors = _scan_colors(len(names))
     for j, name in enumerate(names):
         ax.plot(energy, scan_mu[:, j], color=colors[j], lw=0.9, alpha=0.85, label=name)
-    ax.plot(energy, scan_mu.mean(axis=1), label="average", **_AVG_KW)
+    if merged_mu is not None:
+        ax.plot(energy, merged_mu, label="merged (mean μ)", **_AVG_KW)
     ax.set(xlabel="Energy (eV)", ylabel="μ (summed FF/I0)", title="Raw summed scans")
     return ax
 
@@ -63,38 +64,50 @@ def plot_norm_fits(energy, groups, names, e0, fig=None):
     return fig
 
 
-def plot_flat_overlay(energy, groups, names, ax=None):
-    """All flattened/normalized scans overlaid, with the average."""
+def plot_flat_overlay(energy, groups, names, merged=None, ax=None):
+    """All flattened/normalized scans overlaid, with the merged (E-space) spectrum.
+
+    ``merged`` is the group from processing the mean μ(E) — so this bold trace is the
+    flattened *merged* spectrum, not the mean of the per-scan flattened curves.
+    """
     ax = ax or plt.gca()
     colors = _scan_colors(len(names))
     flat = np.column_stack([g.flat for g in groups])
     for j, name in enumerate(names):
         ax.plot(energy, flat[:, j], color=colors[j], lw=0.9, alpha=0.85, label=name)
-    ax.plot(energy, flat.mean(axis=1), label="average", **_AVG_KW)
+    if merged is not None:
+        ax.plot(energy, merged.flat, label="merged", **_AVG_KW)
     ax.axhline(1.0, color="0.7", lw=0.8, ls=":")
     ax.set(xlabel="Energy (eV)", ylabel="flattened μ(E)", title="Flattened scans")
     return ax
 
 
-def plot_exafs(energy, groups, names, e0, kweight=3, fig=None):
-    """Left: normalized μ + AUTOBK background per scan. Right: kⁿ·χ(k) + average."""
+def plot_exafs(energy, groups, names, e0, merged=None, kweight=3, fig=None):
+    """Left: normalized μ + AUTOBK background per scan. Right: kⁿ·χ(k) per scan.
+
+    The bold ``merged`` trace is the E-space merge carried through: pre_edge + AUTOBK
+    run once on the mean μ(E), so its χ(k) is *not* the mean of the per-scan χ(k).
+    """
     fig = fig or plt.figure(figsize=(11, 4.2))
     ax_bkg, ax_chi = fig.subplots(1, 2)
     colors = _scan_colors(len(names))
 
+    def _norm_bkg(g):  # background in normalized-μ units
+        return (g.bkg - g.pre_edge) / g.edge_step
+
     above = energy >= e0  # the region the spline actually models
     for j, (g, name) in enumerate(zip(groups, names)):
-        norm_bkg = (g.bkg - g.pre_edge) / g.edge_step  # background in normalized units
-        ax_bkg.plot(energy[above], g.norm[above], color=colors[j], lw=0.8, alpha=0.8)
-        ax_bkg.plot(energy[above], norm_bkg[above], color=colors[j], lw=0.9, ls="--", alpha=0.9)
+        ax_bkg.plot(energy[above], g.norm[above], color=colors[j], lw=0.8, alpha=0.75)
+        ax_bkg.plot(energy[above], _norm_bkg(g)[above], color=colors[j], lw=0.9, ls="--", alpha=0.85)
+    if merged is not None:
+        ax_bkg.plot(energy[above], merged.norm[above], **_AVG_KW)
+        ax_bkg.plot(energy[above], _norm_bkg(merged)[above], color="black", lw=1.6, ls="--", zorder=5)
     ax_bkg.set(xlabel="Energy (eV)", ylabel="normalized μ", title="Normalized μ + AUTOBK spline (– –)")
 
-    k = groups[0].k
-    chi = np.column_stack([g.chi for g in groups])
-    kw = k**kweight
-    for j, name in enumerate(names):
-        ax_chi.plot(k, kw * chi[:, j], color=colors[j], lw=0.9, alpha=0.85, label=name)
-    ax_chi.plot(k, kw * chi.mean(axis=1), label="average", **_AVG_KW)
+    for j, g in enumerate(groups):
+        ax_chi.plot(g.k, g.k**kweight * g.chi, color=colors[j], lw=0.9, alpha=0.85, label=names[j])
+    if merged is not None:
+        ax_chi.plot(merged.k, merged.k**kweight * merged.chi, label="merged", **_AVG_KW)
     ax_chi.set(xlabel="k (Å⁻¹)", ylabel=f"k$^{kweight}$·χ(k)", title=f"EXAFS  k$^{kweight}$·χ(k)")
     fig.tight_layout()
     return fig
@@ -102,22 +115,26 @@ def plot_exafs(energy, groups, names, e0, kweight=3, fig=None):
 
 def figure_report(bcr, params, kweight=3) -> list[tuple[str, Figure]]:
     """Build all four processing figures for one file. Returns [(label, Figure), ...]."""
-    from xasbatch.process import process_scans
+    from xasbatch.process import process_channel, process_scans
 
     e0, names, scan_mu, groups = process_scans(bcr, params)
     energy = bcr.energy
 
+    # Merge in E space, then carry it through: average μ(E), run the SAME pipeline once.
+    merged_mu = scan_mu.mean(axis=1)
+    merged = process_channel(energy, merged_mu, params, e0)
+
     f_raw = plt.figure(figsize=(8, 4.5))
-    plot_raw(energy, scan_mu, names, ax=f_raw.gca())
+    plot_raw(energy, scan_mu, names, merged_mu=merged_mu, ax=f_raw.gca())
     _compact_legend(f_raw.gca(), names)
 
     f_norm = plot_norm_fits(energy, groups, names, e0)
 
     f_flat = plt.figure(figsize=(8, 4.5))
-    plot_flat_overlay(energy, groups, names, ax=f_flat.gca())
+    plot_flat_overlay(energy, groups, names, merged=merged, ax=f_flat.gca())
     _compact_legend(f_flat.gca(), names)
 
-    f_exafs = plot_exafs(energy, groups, names, e0, kweight=kweight)
+    f_exafs = plot_exafs(energy, groups, names, e0, merged=merged, kweight=kweight)
     _compact_legend(f_exafs.axes[1], names)
 
     for f in (f_raw, f_flat):

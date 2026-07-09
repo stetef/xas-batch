@@ -77,10 +77,14 @@ uv run xas-batch-plot INPUT.bcr.combined [-o plots/] [--chi-kweight 3]
 
 Writes four figures into a per-sample subdir, `<outdir>/<sample>/`:
 
-1. `1_raw.png` — summed μ(E) per scan (= Σ FF/I0) + average across scans
+1. `1_raw.png` — summed μ(E) per scan (= Σ FF/I0) + the merged spectrum
 2. `2_norm_fits.png` — per-scan grid: μ(E) with pre/post-edge fits (left), flattened μ (right)
-3. `3_flat.png` — all flattened scans overlaid + average
-4. `4_exafs.png` — normalized μ + AUTOBK splines (left), kⁿ·χ(k) per scan + average (right)
+3. `3_flat.png` — all flattened scans overlaid + the merged spectrum
+4. `4_exafs.png` — normalized μ + AUTOBK splines (left), kⁿ·χ(k) per scan + merged (right)
+
+The bold **merged** trace is an **E-space merge carried through**: the per-scan μ(E) are
+averaged, then pre_edge + AUTOBK run *once* on that mean μ — so the merged χ(k) is the
+spline of the averaged spectrum, not the mean of the per-scan χ(k).
 
 The plotting functions in `plotting.py` are reusable, so a notebook/Streamlit front-end
 can call them directly. (matplotlib comes in transitively via Larch; the `plot` extra
