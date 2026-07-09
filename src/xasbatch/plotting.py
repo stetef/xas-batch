@@ -43,7 +43,7 @@ _RC = {
 _SCAN = dict(color="0.60", lw=0.8, alpha=0.75)
 _MERGED = dict(color="black", lw=2.0, zorder=6)
 # Okabe–Ito colorblind-safe accents for the per-scan normalization fits.
-_C_MU, _C_PRE, _C_POST, _C_FLAT, _C_BKG = "black", "#0072B2", "#D55E00", "#009E73", "#CC3311"
+_C_MU, _C_PRE, _C_POST, _C_FLAT, _C_BKG = "black", "#0072B2", "#D55E00", "#13396B", "#CC3311"
 
 
 def _finish(ax):
@@ -55,7 +55,7 @@ def _overlay_legend(ax, n, merged=True):
     """Two-entry legend for the overlay panels (scans share a color)."""
     handles = [Line2D([0], [0], color=_SCAN["color"], lw=1.4, label=f"scans (n={n})")]
     if merged:
-        handles.append(Line2D([0], [0], **_MERGED, label="merged"))
+        handles.append(Line2D([0], [0], **_MERGED, label="merged (avg)"))
     ax.legend(handles=handles, loc="best")
 
 
@@ -74,20 +74,21 @@ def plot_raw(energy, scan_mu, names, merged_mu=None, ax=None):
 def plot_norm_fits(energy, groups, names, e0, fig=None):
     """Grid: each scan's μ(E) with pre/post-edge fits (left) and flattened μ (right)."""
     n = len(groups)
-    fig = fig or plt.figure(figsize=(9.5, 2.2 * n + 0.6))
+    header = 0.9  # inches reserved at the top for the title + shared legend row
+    height = 2.2 * n + header
+    fig = fig or plt.figure(figsize=(9.5, height))
     axes = fig.subplots(n, 2, squeeze=False)
     for j, (g, name) in enumerate(zip(groups, names)):
         left, right = axes[j]
-        left.plot(energy, g.mu, color=_C_MU, lw=1.3, label=r"$\mu(E)$")
-        left.plot(energy, g.pre_edge, color=_C_PRE, lw=1.3, ls="--", label="pre-edge")
-        left.plot(energy, g.post_edge, color=_C_POST, lw=1.3, ls="--", label="post-edge")
+        left.plot(energy, g.mu, color=_C_MU, lw=1.3)
+        left.plot(energy, g.pre_edge, color=_C_PRE, lw=1.3, ls="--")
+        left.plot(energy, g.post_edge, color=_C_POST, lw=1.3, ls="--")
         left.axvline(e0, color="0.55", lw=0.9, ls=":")
-        left.set_ylabel(name, fontsize=9)
-        left.text(
-            0.03, 0.95, rf"$\Delta\mu_0 = {g.edge_step:.3f}$",
-            transform=left.transAxes, ha="left", va="top", fontsize=10,
-            bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="0.8", alpha=0.85),
-        )
+        left.text(0.02, 0.94, name, transform=left.transAxes, ha="left", va="top",
+                  fontsize=9, color="0.25")
+        # E0 + edge step reported per scan (no box), so a future per-scan e0 shows here
+        left.text(0.98, 0.05, rf"$E_0 = {e0:.1f}$ eV" "\n" rf"$\Delta\mu_0 = {g.edge_step:.3f}$",
+                  transform=left.transAxes, ha="right", va="bottom", fontsize=9)
         right.plot(energy, g.flat, color=_C_FLAT, lw=1.4)
         right.axhline(1.0, color="0.7", lw=0.8, ls=":")
         _finish(left)
@@ -95,12 +96,19 @@ def plot_norm_fits(energy, groups, names, e0, fig=None):
         if j == 0:
             left.set_title("pre / post-edge fit")
             right.set_title(r"flattened $\mu(E)$")
-            left.legend(loc="lower right", fontsize=9)
         if j == n - 1:
             left.set_xlabel("Energy (eV)")
             right.set_xlabel("Energy (eV)")
-    fig.suptitle(rf"Normalization per scan   ($E_0 = {e0:.1f}$ eV)", y=0.999, fontsize=15)
-    fig.tight_layout()
+
+    fig.tight_layout(rect=(0, 0, 1, 1 - header / height))
+    fig.suptitle("Normalization per scan", y=1 - 0.22 * header / height, fontsize=15)
+    handles = [
+        Line2D([0], [0], color=_C_MU, lw=1.5, label=r"$\mu(E)$"),
+        Line2D([0], [0], color=_C_PRE, lw=1.5, ls="--", label="pre-edge"),
+        Line2D([0], [0], color=_C_POST, lw=1.5, ls="--", label="post-edge"),
+        Line2D([0], [0], color=_C_FLAT, lw=1.6, label=r"flattened $\mu(E)$"),
+    ]
+    fig.legend(handles=handles, loc="center", ncol=4, bbox_to_anchor=(0.5, 1 - 0.62 * header / height))
     return fig
 
 
@@ -123,7 +131,7 @@ def plot_exafs(energy, groups, names, e0, merged=None, kweight=3, fig=None):
     The bold ``merged`` trace is the E-space merge carried through (pre_edge + AUTOBK
     on the mean μ), so its χ(k) is *not* the mean of the per-scan χ(k).
     """
-    fig = fig or plt.figure(figsize=(11.5, 4.4))
+    fig = fig or plt.figure(figsize=(10.5, 3.8))
     ax_bkg, ax_chi = fig.subplots(1, 2)
 
     def _norm_bkg(g):  # background in normalized-μ units
@@ -170,7 +178,7 @@ def figure_report(bcr, params, kweight=3) -> list[tuple[str, Figure]]:
 
         f_norm = plot_norm_fits(energy, groups, names, e0)
 
-        f_flat = plt.figure(figsize=(8, 4.8))
+        f_flat = plt.figure(figsize=(6.2, 4.2))
         plot_flat_overlay(energy, groups, names, merged=merged, ax=f_flat.gca())
 
         f_exafs = plot_exafs(energy, groups, names, e0, merged=merged, kweight=kweight)
