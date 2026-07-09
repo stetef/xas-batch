@@ -140,10 +140,12 @@ the catalog, and the plots (excluded scans drawn faint red).
 
 Gates:
 
-- **File range (hard skip):** if the post-edge window can't exist — `Emax − e0 < norm1 +
-  20 eV` — the file raises `SkipFile` and is recorded as **skipped** (not a crash, not a
-  garbage npz). This catches short XANES-only scans (e.g. a La K-edge file with ~105 eV
-  above the edge).
+- **File range (hard skip):** the post-edge window must exist but not be absurd — skip if
+  `Emax − e0 < norm1 + 20 eV` (short XANES-only scans, e.g. a La K-edge file with ~105 eV
+  above the edge) **or** if `Emax − e0 > 5000 eV` (not a single edge — a corrupt or
+  multi-edge grid, e.g. an ~89,000 eV span). Recorded as **skipped**, not a crash or a
+  garbage npz. (The loader also sorts energy strictly ascending and drops duplicate
+  energies, repairing scrambled/reversed grids before this check.)
 - **Non-finite result:** a scan whose `edge_step` is ≤ 0 / non-finite, or whose
   `flat`/`chi` contain NaN/Inf (blown-up fit), is excluded.
 - **e0 outlier (robust):** a scan is excluded if `|e0 − median(e0)| > max(5·MAD, 2 eV)`.

@@ -66,15 +66,20 @@ def find_edge(
     high-SNR spectrum but protect noisy or glitchy ones. Falls back to the full range if
     no guess is given or the window holds too few points.
     """
-    energy = np.asarray(energy, dtype=float)
-    mu = np.asarray(mu, dtype=float)
+    e_full = np.asarray(energy, dtype=float)
+    mu_full = np.asarray(mu, dtype=float)
+    energy, mu = e_full, mu_full
     if e0_guess is not None:
-        m = (energy >= e0_guess - search_window) & (energy <= e0_guess + search_window)
-        if int(m.sum()) >= max(sg_window, 5):
-            energy, mu = energy[m], mu[m]
+        m = (e_full >= e0_guess - search_window) & (e_full <= e0_guess + search_window)
+        # need enough points for find_e0's internal derivative trimming, else full range
+        if int(m.sum()) >= 25:
+            energy, mu = e_full[m], mu_full[m]
     if smooth and mu.size > sg_window:
         mu = savgol_filter(mu, sg_window, sg_polyorder)
-    return float(find_e0(energy, mu=mu, group=None))
+    try:
+        return float(find_e0(energy, mu=mu, group=None))
+    except Exception:  # noqa: BLE001 - a clipped/short window can break find_e0; use full range
+        return float(find_e0(e_full, mu=mu_full, group=None))
 
 
 def normalize(group: Group, params: Params, e0: float) -> Group:
@@ -226,6 +231,7 @@ class SkipFile(Exception):
 _E0_MAD_K = 5.0  # keep within this many robust-σ of the median ...
 _E0_FLOOR = 2.0  # ... but never flag anything within this many eV (σ can be ~0.08)
 _RANGE_MARGIN = 20.0  # required post-edge span beyond norm1 (eV) for a usable fit
+_MAX_SPAN = 5000.0  # eV above the edge; beyond this it's not one edge (corrupt/multi-edge)
 
 
 def _e0_outlier_mask(e0s: np.ndarray) -> np.ndarray:
@@ -261,13 +267,18 @@ def _process_scan_set(bcr: BcrData, params: Params):
     n = len(names)
     scan_e0s = resolve_scan_e0s(bcr, params, scan_mu)
 
-    # file-level range gate: need a usable post-edge window above the edge
+    # file-level range gates: need a usable post-edge window, but not an absurd span
     e0_ref = float(np.median(scan_e0s))
     span = float(bcr.energy.max()) - e0_ref
     if params.qc and span < params.norm1 + _RANGE_MARGIN:
         raise SkipFile(
             f"insufficient post-edge range: {span:.0f} eV above e0≈{e0_ref:.0f} "
             f"(need ≥ norm1+{_RANGE_MARGIN:.0f} = {params.norm1 + _RANGE_MARGIN:.0f} eV)"
+        )
+    if params.qc and span > _MAX_SPAN:
+        raise SkipFile(
+            f"implausible post-edge range: {span:.0f} eV above e0≈{e0_ref:.0f} "
+            f"(> {_MAX_SPAN:.0f}); likely a corrupt or multi-edge energy grid"
         )
 
     reasons: list[list[str]] = [[] for _ in range(n)]

@@ -97,6 +97,23 @@ def test_descending_energy_is_flipped(tmp_path):
     np.testing.assert_allclose(bcr.mu, ref.mu)
 
 
+def test_load_sorts_scrambled_and_dedups_energy(tmp_path):
+    """A scrambled/duplicated energy axis loads strictly ascending (splines need it)."""
+    header = [ln for ln in FIXTURE.read_text().splitlines() if ln.startswith("#")]
+    data = np.loadtxt(FIXTURE, comments="#")
+    scrambled = data[::-1].copy()  # fully reversed -> non-ascending
+    scrambled[1, 0] = scrambled[0, 0]  # inject a duplicate energy
+    p = tmp_path / "scrambled.bcr.combined"
+    with p.open("w") as fh:
+        fh.write("\n".join(header) + "\n")
+        for row in scrambled:
+            fh.write(" ".join(f"{v:.6f}" for v in row) + "\n")
+
+    bcr = load_combined_bcr(p)
+    assert np.all(np.diff(bcr.energy) > 0)  # strictly increasing after sort + dedup
+    assert bcr.meta.get("n_duplicate_energies_dropped", 0) >= 1
+
+
 def test_missing_columns_line_fails_loudly(tmp_path):
     p = tmp_path / "bad.bcr.combined"
     p.write_text("# Sample: nope\n7000.0 0.1\n7001.0 0.2\n")

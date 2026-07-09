@@ -174,8 +174,9 @@ def scan_groups(meta: dict) -> list[tuple[str, int, int]]:
 def load_combined_bcr(path: str | Path) -> BcrData:
     """Load a combined-BCR file into a :class:`BcrData`.
 
-    Slices columns using the parsed header, flips to ascending energy if the file
-    stores it descending, and stashes (but does not process) the RTC columns.
+    Slices columns using the parsed header, sorts to strictly-ascending energy
+    (generalizes a descending flip; also handles scrambled grids), drops duplicate
+    energies, and stashes (but does not process) the RTC columns.
     """
     path = Path(path)
     meta = parse_header(path)
@@ -192,13 +193,21 @@ def load_combined_bcr(path: str | Path) -> BcrData:
     mu = data[:, meta["mu_cols"]]
     rtc = data[:, meta["rtc_cols"]] if meta["rtc_cols"] else None
 
-    # Energy may be stored descending -> flip to ascending.
-    if energy.size > 1 and energy[0] > energy[-1]:
-        order = np.argsort(energy)
-        energy = energy[order]
-        mu = mu[order, :]
+    # Ensure strictly-ascending energy: sort (generalizes a descending flip and repairs
+    # scrambled grids), then drop duplicate energies (splines need strictly increasing).
+    if energy.size > 1 and not np.all(np.diff(energy) > 0):
+        order = np.argsort(energy, kind="stable")
+        energy, mu = energy[order], mu[order, :]
         if rtc is not None:
             rtc = rtc[order, :]
+        keep = np.ones(energy.size, dtype=bool)
+        keep[1:] = np.diff(energy) > 0  # first of each duplicate-energy run
+        n_dropped = int((~keep).sum())
+        if n_dropped:
+            energy, mu = energy[keep], mu[keep, :]
+            if rtc is not None:
+                rtc = rtc[keep, :]
+            meta["n_duplicate_energies_dropped"] = n_dropped
 
     return BcrData(
         energy=energy,
