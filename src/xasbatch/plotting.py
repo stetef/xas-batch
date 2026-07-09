@@ -84,6 +84,13 @@ def plot_norm_fits(energy, groups, names, e0, fig=None):
         left.plot(energy, g.pre_edge, color=_C_PRE, lw=1.3, ls="--")
         left.plot(energy, g.post_edge, color=_C_POST, lw=1.3, ls="--")
         left.axvline(e0, color="0.65", lw=0.9, ls=":")
+        # mark the actual pre-edge (blue) and post-edge/norm (orange) fit ranges
+        d = getattr(g, "pre_edge_details", None)
+        if d is not None:
+            for x in (e0 + d.pre1, e0 + d.pre2):
+                left.axvline(x, color=_C_PRE, lw=0.8, alpha=0.6, zorder=0)
+            for x in (e0 + d.norm1, e0 + d.norm2):
+                left.axvline(x, color=_C_POST, lw=0.8, alpha=0.6, zorder=0)
         left.text(0.02, 0.95, name, transform=left.transAxes, ha="left", va="top",
                   fontsize=12, color="black")
         # E0 + edge step reported per scan (no box), so a future per-scan e0 shows here
