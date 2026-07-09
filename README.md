@@ -1,87 +1,94 @@
 # xas-batch
 
-Batch normalization + EXAFS extraction for **combined-BCR** fluorescence XAS files.
+Batch normalization + EXAFS extraction for **combined-BCR** fluorescence XAS files,
+via [Larch](https://xraypy.github.io/xraylarch/).
 
-Each input is one energy-calibrated, I0-divided file with many μ(E) columns
-(`FF*/I0`) on a shared energy grid, plus trailing `RTC_*` columns that are ignored
-for processing. For every channel this normalizes μ(E) (pre/post-edge → flattened),
-runs an AUTOBK background spline, and extracts χ(k) on a shared k-grid — then stacks
-the results and writes one `.npz` per file. Wraps [Larch](https://xraypy.github.io/xraylarch/).
+Each input is one energy-calibrated, I0-divided file with many μ(E) columns (`FF*/I0`)
+on a shared energy grid. For each spectrum it normalizes μ(E) (pre/post-edge →
+flattened), runs an AUTOBK background spline, and extracts χ(k) on a shared k-grid —
+then stacks the results and writes one `.npz` per file. Energy calibration and I0
+division are assumed already done upstream.
 
-Upstream steps (energy calibration, I0 division) are assumed already done.
+See [DESIGN.md](DESIGN.md) for the file format, architecture, and the rationale behind
+the design choices.
 
-## Install / run
+## Setup
 
 ```bash
 uv sync
-uv run xas-batch INPUT [-o OUTDIR]        # INPUT = a .bcr.combined file or a directory
-uv run pytest
+uv run pytest        # 25 tests, ~3s
 ```
 
-## Mass processing a whole tree (`xas-batch-tree`)
+## Process one file (or a flat directory)
 
-For processing many files across a directory tree, copy `.env.example` to `.env` and
-set the input root, then:
+```bash
+uv run xas-batch INPUT [-o OUTDIR]     # INPUT = a .bcr.combined file or a directory
+uv run xas-batch INPUT --mode both     # store per-scan AND per-channel blocks
+uv run xas-batch INPUT --ft --kweight 2
+```
+
+## Process a whole tree
+
+Copy `.env.example` to `.env`, set `XAS_INPUT_ROOT` (and optionally `XAS_OUTPUT_DIR`),
+then:
 
 ```bash
 uv run xas-batch-tree              # parallel over all *.bcr.combined under XAS_INPUT_ROOT
-uv run xas-batch-tree --jobs 8     # control worker count (default: cpu_count-1; 1 = serial)
-uv run xas-batch-tree --limit 8    # process only the first N (handy for a trial run)
+uv run xas-batch-tree --jobs 8     # worker count (default: cpu_count-1; 1 = serial)
+uv run xas-batch-tree --limit 8    # first N files only (trial run)
 uv run xas-batch-tree --force      # reprocess even files the catalog marks done
 ```
 
-- Recursively finds every `*.bcr.combined` under `XAS_INPUT_ROOT`.
-- Output: mirrored into `XAS_OUTPUT_DIR` preserving the tree, or — if that is unset —
-  written as a sister `.npz` next to each source file.
-- **Resumable**: a SQLite catalog (`xas_catalog.sqlite`) records one row per file, so a
-  re-run skips files already processed (unless the source changed, or `--force`).
-- **Provenance / query index**: the catalog stores `status, e0, e0_source, n_channels,
-  element, edge, params, error` per file — query it directly for downstream work, e.g.
+- **Output:** mirrored under `XAS_OUTPUT_DIR` preserving the tree, or (if unset) a
+  sister `.npz` next to each source file.
+- **Resumable:** a SQLite catalog (`xas_catalog.sqlite`) records one row per file; a
+  re-run skips files already done (unless the source changed, or `--force`).
+- **Queryable:** the catalog is a provenance index for downstream work, e.g.
   ```sql
   SELECT source_path, output_path FROM files WHERE element='Co' AND status='ok';
   ```
-- Processing knobs (`--auto-e0`, `--kweight`, `--ft`, …) match `xas-batch`.
 
-`.env` keys: `XAS_INPUT_ROOT` (required), `XAS_OUTPUT_DIR` (optional), `XAS_DB_PATH`
-(optional; defaults to `<output-or-input root>/xas_catalog.sqlite`).
+`.env` keys: `XAS_INPUT_ROOT` (required), `XAS_OUTPUT_DIR` (optional),
+`XAS_DB_PATH` (optional; defaults to `<output-or-input root>/xas_catalog.sqlite`).
 
-## Processing modes (`--mode`)
+## Modes (`--mode`, default `scan`)
 
-Each combined file bundles several *original scans* (one per BCR member file), and
-each scan contributed several detector channels — the header's `# Members (kept):`
-block records how many, in column order.
+A combined file bundles several original scans, each contributing several detector
+channels (the header's `# Members (kept):` block says how many).
 
-- `--mode scan` **(default)** — sum each original file's channels into one total-
-  fluorescence μ(E) per scan (`nansum`, so a missing element doesn't poison the sum),
-  then process those. ~15 spectra for the Co3NK_s example.
-- `--mode channel` — process every μ column individually (~448 for Co3NK_s).
-- `--mode both` — compute and store *both* blocks in the one `.npz`.
+| mode | what it processes | Co3NK_s | file size |
+|---|---|---|---|
+| `scan` *(default)* | sum each scan's channels → one μ(E)/scan | 15 spectra | ~0.2 MB |
+| `channel` | every μ column individually | 448 spectra | ~3.9 MB |
+| `both` | both blocks in one `.npz` | 15 + 448 | ~4.0 MB |
 
-e0 is resolved once per file and shared across every column of every block, so the
-scan and channel blocks land on the **same k-grid**.
+`scan` and `channel` share one per-file e0, so their k-grids align. `both` ≈ `channel`
+in size (the scan block rides along nearly free); `scan`-only is ~20× smaller.
 
-## Key options
+## Options
 
-- `--e0 FLOAT` — force the edge energy for all channels.
-- `--auto-e0` — detect e0 once per file via Larch `find_e0` instead of trusting the
-  header `E0_tab` (the default).
+- `--mode {scan,channel,both}` — see above.
+- `--e0 FLOAT` — force the edge energy; `--auto-e0` — detect via `find_e0` instead of
+  the header `E0_tab` (the default).
 - `--kweight`, `--kmin`, `--kmax`, `--rbkg`, `--kstep` — AUTOBK / χ(k) knobs.
 - `--ft` — also compute the forward FT (χ(R)).
 
-## Output
+## Output layout
 
-One `<sample>.npz` per input file. Shared arrays: `energy`, `e0`, JSON-encoded `meta`.
-Then a `scan_*` and/or `channel_*` block (whichever were computed):
+One `<sample>.npz` per file: shared `energy`, `e0`, JSON `meta_json`; plus a `scan_*`
+and/or `channel_*` block:
 
-    scan_names, scan_flat (nE×nScans), scan_k, scan_chi (nk×nScans), scan_edge_step
-    channel_names, channel_flat (nE×nFF), channel_k, channel_chi (nk×nFF), channel_edge_step
-    (+ scan_r / scan_chir_mag, channel_r / channel_chir_mag when --ft is given)
+    <prefix>_names, <prefix>_flat (nE×n), <prefix>_k, <prefix>_chi (nk×n), <prefix>_edge_step
+    (+ <prefix>_r / <prefix>_chir_mag when --ft is given)
 
 `meta` records `mode`, `modes_present`, `n_channels_raw`, `e0_used`/`e0_source`, and
-`scan_members` (the scan→channel-count mapping).
+`scan_members`.
 
-## Layout
+## Package layout
 
-- `io.py` / `model.py` — pure numpy (no Larch); the custom parser and data model.
-- `process.py` — the Larch layer (`pre_edge`, `autobk`, `xftf`).
-- `cli.py` — the `xas-batch` entry point.
+| module | role |
+|---|---|
+| `model.py`, `io.py` | pure numpy — data model, header parser, npz I/O, scan grouping |
+| `process.py` | the Larch layer (`pre_edge`, `autobk`, `xftf`) |
+| `catalog.py` | SQLite catalog for tree runs |
+| `cli.py`, `tree.py` | the `xas-batch` and `xas-batch-tree` entry points |
