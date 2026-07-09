@@ -39,6 +39,7 @@ class Params:
     (only when ``auto_e0``) Larch ``find_e0``.
     """
 
+    mode: str = "scan"  # "scan" (sum each original file's channels) | "channel" | "both"
     e0: float | None = None  # explicit override; None -> use header E0_tab (or auto if auto_e0)
     auto_e0: bool = False  # when True and e0 is None, detect once via find_e0
     # pre-edge / normalization
@@ -62,21 +63,43 @@ class Params:
 
 
 @dataclass
-class BatchResult:
-    """Stacked results for all channels of one file, on a shared k-grid."""
+class ProcessBlock:
+    """Stacked results for one set of spectra (all scans, or all channels).
 
-    energy: np.ndarray  # (nE,)
-    flat: np.ndarray  # (nE, nFF) flattened mu(E) per channel
-    k: np.ndarray  # (nk,) shared across channels
-    chi: np.ndarray  # (nk, nFF)
-    e0: float
-    edge_step: np.ndarray  # (nFF,) per-channel edge jump
-    channel_names: list[str]
-    meta: dict = field(default_factory=dict)
+    Every column shares the same k-grid (guaranteed by a shared energy+e0+kstep).
+    """
+
+    names: list[str]  # column labels (scan/member names, or channel names)
+    flat: np.ndarray  # (nE, n) flattened mu(E) per column
+    k: np.ndarray  # (nk,) shared across columns
+    chi: np.ndarray  # (nk, n)
+    edge_step: np.ndarray  # (n,) per-column edge jump
     # optional forward FT (populated only when Params.ft is True)
     r: np.ndarray | None = None  # (nR,)
-    chir_mag: np.ndarray | None = None  # (nR, nFF)
+    chir_mag: np.ndarray | None = None  # (nR, n)
+
+    @property
+    def n(self) -> int:
+        return self.chi.shape[1]
+
+
+@dataclass
+class BatchResult:
+    """Results for one file. Holds a ``scan`` and/or ``channel`` block on a shared e0.
+
+    Which blocks are present is set by ``Params.mode`` ("scan", "channel", "both").
+    """
+
+    energy: np.ndarray  # (nE,)
+    e0: float
+    scan: ProcessBlock | None = None  # summed-per-original-file spectra (mode scan/both)
+    channel: ProcessBlock | None = None  # per-column spectra (mode channel/both)
+    meta: dict = field(default_factory=dict)
+
+    @property
+    def n_scans(self) -> int:
+        return self.scan.n if self.scan is not None else 0
 
     @property
     def n_channels(self) -> int:
-        return self.chi.shape[1]
+        return self.channel.n if self.channel is not None else 0

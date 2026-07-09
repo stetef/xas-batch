@@ -21,10 +21,14 @@ def main() -> None:
     print(f"loaded {bcr.n_channels} channels x {bcr.n_energy} energies from {path.name}")
     print(f"  element={bcr.meta['element']} edge={bcr.meta['edge']} E0_tab={bcr.meta['e0_tab']}")
 
-    result = process_batch(bcr, Params())  # header E0_tab default
-    print(f"processed: e0={result.e0:.3f} eV, nk={result.k.size}")
-    print(f"  flat shape {result.flat.shape}, chi shape {result.chi.shape}")
-    print(f"  edge steps: {result.edge_step.round(4).tolist()}")
+    result = process_batch(bcr, Params(mode="both"))  # header E0_tab default; both blocks
+    print(f"processed: e0={result.e0:.3f} eV")
+    if result.scan is not None:
+        s = result.scan
+        print(f"  scan block:    {s.n} scans,    chi {s.chi.shape}, names={s.names}")
+    if result.channel is not None:
+        c = result.channel
+        print(f"  channel block: {c.n} channels, chi {c.chi.shape}")
 
     out = save_result(result, Path("out"))
     print(f"wrote {out}")

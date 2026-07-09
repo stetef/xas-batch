@@ -14,6 +14,12 @@ GLOB = "*.bcr.combined"
 def add_param_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     """Add the processing-knob flags shared by ``xas-batch`` and ``xas-batch-tree``."""
     d = Params()
+    p.add_argument(
+        "--mode",
+        choices=("scan", "channel", "both"),
+        default=d.mode,
+        help=f"scan=sum each file's channels; channel=per column; both (default: {d.mode})",
+    )
     e = p.add_mutually_exclusive_group()
     e.add_argument("--e0", type=float, default=None, help="force edge energy (eV) for all channels")
     e.add_argument(
@@ -41,6 +47,15 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def block_summary(result) -> str:
+    """One-line description of which blocks a result carries, e.g. 'scan=15, channel=448 (nk=301)'."""
+    parts = []
+    for label, blk in (("scan", result.scan), ("channel", result.channel)):
+        if blk is not None:
+            parts.append(f"{label}={blk.n} (nk={blk.k.size})")
+    return ", ".join(parts) if parts else "no blocks"
+
+
 def gather_inputs(path: Path) -> list[Path]:
     if path.is_dir():
         return sorted(path.glob(GLOB))
@@ -49,6 +64,7 @@ def gather_inputs(path: Path) -> list[Path]:
 
 def params_from_args(args: argparse.Namespace) -> Params:
     return Params(
+        mode=args.mode,
         e0=args.e0,
         auto_e0=args.auto_e0,
         rbkg=args.rbkg,
@@ -85,9 +101,8 @@ def main(argv: list[str] | None = None) -> int:
             failures += 1
             continue
         print(
-            f"OK    {path.name}: {result.n_channels} channels, "
-            f"e0={result.e0:.2f} eV ({result.meta['e0_source']}), "
-            f"nk={result.k.size} -> {out_path}"
+            f"OK    {path.name}: {block_summary(result)}, "
+            f"e0={result.e0:.2f} eV ({result.meta['e0_source']}) -> {out_path}"
         )
 
     return 1 if failures else 0

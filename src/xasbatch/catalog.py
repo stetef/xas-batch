@@ -21,9 +21,11 @@ CREATE TABLE IF NOT EXISTS files (
     source_mtime REAL,
     output_path  TEXT,
     status       TEXT,          -- 'ok' | 'error'
+    mode         TEXT,          -- 'scan' | 'channel' | 'both'
     e0           REAL,
     e0_source    TEXT,
-    n_channels   INTEGER,
+    n_scans      INTEGER,       -- scans processed (0 if mode=channel)
+    n_channels   INTEGER,       -- raw FF columns in the file
     element      TEXT,
     edge         TEXT,
     params_json  TEXT,
@@ -37,8 +39,10 @@ COLUMNS = (
     "source_mtime",
     "output_path",
     "status",
+    "mode",
     "e0",
     "e0_source",
+    "n_scans",
     "n_channels",
     "element",
     "edge",

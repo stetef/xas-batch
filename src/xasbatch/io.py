@@ -130,7 +130,45 @@ def parse_header(path: str | Path) -> dict:
     # e0_tab can also appear as "E0_tab=7709.0000" inside the k_max annotation
     if meta["e0_tab"] is None:
         meta["e0_tab"] = _find(r"E0_tab=([\d.]+)", header_text, float)
+
+    # Members block: each original file (=one scan) and how many channels it contributed.
+    #   "#   BCR_Co3NK_s_043_A.001  → 30 channel(s), shift=+0.6480 eV, ..."
+    # Channels sit in this order, so the counts slice the mu matrix into scans.
+    members = []
+    for ln in header_lines:
+        m = re.match(r"#\s+(\S+)\s*(?:→|->)\s*(\d+)\s*channel", ln)
+        if m:
+            members.append({"name": m.group(1), "n_channels": int(m.group(2))})
+    meta["members"] = members
     return meta
+
+
+def scan_groups(meta: dict) -> list[tuple[str, int, int]]:
+    """Column ranges ``(member_name, start, stop)`` into the μ matrix, one per scan.
+
+    Derived from the header ``members`` block. Fails loudly if the block is missing
+    or its channel counts don't sum to the number of FF columns — we refuse to guess
+    the scan→channel mapping.
+    """
+    members = meta.get("members")
+    if not members:
+        raise ValueError(
+            "no 'Members (kept)' block in header; cannot group channels into scans "
+            "(use --mode channel to process columns individually)."
+        )
+    n_ff = len(meta["channel_names"])
+    total = sum(m["n_channels"] for m in members)
+    if total != n_ff:
+        raise ValueError(
+            f"member channel counts sum to {total} but there are {n_ff} FF columns; "
+            "header members block is inconsistent with the data."
+        )
+    groups, start = [], 0
+    for m in members:
+        stop = start + m["n_channels"]
+        groups.append((m["name"], start, stop))
+        start = stop
+    return groups
 
 
 def load_combined_bcr(path: str | Path) -> BcrData:
@@ -185,21 +223,36 @@ def _json_safe(obj):
     return obj
 
 
+def _block_arrays(prefix: str, block) -> dict:
+    """Namespaced arrays for one :class:`~xasbatch.model.ProcessBlock`."""
+    arrays = {
+        f"{prefix}_names": np.asarray(block.names, dtype=object),
+        f"{prefix}_flat": block.flat,
+        f"{prefix}_k": block.k,
+        f"{prefix}_chi": block.chi,
+        f"{prefix}_edge_step": block.edge_step,
+    }
+    if block.r is not None and block.chir_mag is not None:
+        arrays[f"{prefix}_r"] = block.r
+        arrays[f"{prefix}_chir_mag"] = block.chir_mag
+    return arrays
+
+
 def _npz_arrays(result: BatchResult) -> dict:
-    """Build the array dict written to an ``.npz`` (meta JSON-encoded into a 0-d array)."""
+    """Build the array dict written to an ``.npz``.
+
+    Shared ``energy``/``e0``/``meta_json`` plus a ``scan_*`` and/or ``channel_*``
+    block, depending on which were computed (``meta["modes_present"]`` lists them).
+    """
     arrays = {
         "energy": result.energy,
-        "flat": result.flat,
-        "k": result.k,
-        "chi": result.chi,
         "e0": np.asarray(result.e0),
-        "edge_step": result.edge_step,
-        "channel_names": np.asarray(result.channel_names, dtype=object),
         "meta_json": np.asarray(json.dumps(_json_safe(result.meta))),
     }
-    if result.r is not None and result.chir_mag is not None:
-        arrays["r"] = result.r
-        arrays["chir_mag"] = result.chir_mag
+    if result.scan is not None:
+        arrays.update(_block_arrays("scan", result.scan))
+    if result.channel is not None:
+        arrays.update(_block_arrays("channel", result.channel))
     return arrays
 
 

@@ -11,7 +11,8 @@ import numpy as np
 from larch import Group
 from larch.xafs import autobk, find_e0, pre_edge, xftf
 
-from xasbatch.model import BatchResult, BcrData, Params
+from xasbatch.io import scan_groups
+from xasbatch.model import BatchResult, BcrData, Params, ProcessBlock
 
 
 def build_group(energy: np.ndarray, mu: np.ndarray) -> Group:
@@ -97,30 +98,23 @@ def resolve_e0(bcr: BcrData, params: Params) -> float:
     return float(header_e0)
 
 
-def process_batch(bcr: BcrData, params: Params) -> BatchResult:
-    """Process every μ channel of one file onto a shared k-grid and stack the results.
-
-    e0 is resolved once (see :func:`resolve_e0`) and reused across channels, so
-    identical energy+e0+kstep yields an aligned k-grid for every column — which we
-    assert, then store a single ``k`` alongside the ``chi`` matrix.
-    """
-    e0 = resolve_e0(bcr, params)
-
+def _process_matrix(
+    energy: np.ndarray, mu_matrix: np.ndarray, names: list[str], params: Params, e0: float
+) -> ProcessBlock:
+    """Process each column of ``mu_matrix`` and stack onto a shared k-grid."""
     flat_cols, chi_cols, edge_steps = [], [], []
-    k_ref = None
-    r_ref = None
+    k_ref = r_ref = None
     chir_cols = [] if params.ft else None
 
-    for j in range(bcr.n_channels):
-        group = process_channel(bcr.energy, bcr.mu[:, j], params, e0)
+    for j in range(mu_matrix.shape[1]):
+        group = process_channel(energy, mu_matrix[:, j], params, e0)
 
         if k_ref is None:
             k_ref = np.asarray(group.k, dtype=float)
         elif group.k.shape != k_ref.shape:
             raise ValueError(
-                f"channel {bcr.channel_names[j]!r} returned k of length "
-                f"{group.k.shape[0]}, expected {k_ref.shape[0]}; shared-grid "
-                "assumption violated."
+                f"{names[j]!r} returned k of length {group.k.shape[0]}, expected "
+                f"{k_ref.shape[0]}; shared-grid assumption violated."
             )
 
         flat_cols.append(np.asarray(group.flat, dtype=float))
@@ -132,6 +126,56 @@ def process_batch(bcr: BcrData, params: Params) -> BatchResult:
                 r_ref = np.asarray(group.r, dtype=float)
             chir_cols.append(np.asarray(group.chir_mag, dtype=float))
 
+    return ProcessBlock(
+        names=list(names),
+        flat=np.column_stack(flat_cols),
+        k=k_ref,
+        chi=np.column_stack(chi_cols),
+        edge_step=np.asarray(edge_steps, dtype=float),
+        r=r_ref,
+        chir_mag=np.column_stack(chir_cols) if params.ft else None,
+    )
+
+
+def _sum_scans(bcr: BcrData) -> tuple[list[str], np.ndarray, list[dict]]:
+    """Sum each original file's channels into one μ(E) per scan (total fluorescence).
+
+    ``nansum`` so a missing detector element doesn't poison the scan sum.
+    Returns (scan names, μ matrix (nE, nScans), scan-member metadata).
+    """
+    groups = scan_groups(bcr.meta)
+    names, cols, members = [], [], []
+    for name, start, stop in groups:
+        names.append(name)
+        cols.append(np.nansum(bcr.mu[:, start:stop], axis=1))
+        members.append({"name": name, "n_channels": stop - start})
+    return names, np.column_stack(cols), members
+
+
+def process_batch(bcr: BcrData, params: Params) -> BatchResult:
+    """Process one file into a ``scan`` and/or ``channel`` block on a shared e0.
+
+    ``params.mode`` selects which:
+      - ``"scan"`` (default): sum each original file's channels → one μ(E) per scan.
+      - ``"channel"``: process every μ column individually.
+      - ``"both"``: compute and store both blocks in the one result.
+
+    e0 is resolved once (see :func:`resolve_e0`) and reused across every column of
+    every block, so all k-grids align (asserted in :func:`_process_matrix`).
+    """
+    if params.mode not in ("scan", "channel", "both"):
+        raise ValueError(f"invalid mode {params.mode!r}; expected scan|channel|both.")
+
+    e0 = resolve_e0(bcr, params)
+
+    scan_block = channel_block = None
+    scan_members = None
+    if params.mode in ("scan", "both"):
+        names, scan_mu, scan_members = _sum_scans(bcr)
+        scan_block = _process_matrix(bcr.energy, scan_mu, names, params, e0)
+    if params.mode in ("channel", "both"):
+        channel_block = _process_matrix(bcr.energy, bcr.mu, bcr.channel_names, params, e0)
+
     meta = dict(bcr.meta)
     meta["e0_used"] = e0
     meta["e0_source"] = (
@@ -139,16 +183,14 @@ def process_batch(bcr: BcrData, params: Params) -> BatchResult:
         if params.e0 is not None
         else ("find_e0" if (params.auto_e0 or bcr.meta.get("e0_tab") is None) else "header_e0_tab")
     )
+    meta["mode"] = params.mode
+    meta["n_channels_raw"] = bcr.n_channels
+    meta["modes_present"] = [
+        name for name, blk in (("scan", scan_block), ("channel", channel_block)) if blk is not None
+    ]
+    if scan_members is not None:
+        meta["scan_members"] = scan_members
 
     return BatchResult(
-        energy=bcr.energy,
-        flat=np.column_stack(flat_cols),
-        k=k_ref,
-        chi=np.column_stack(chi_cols),
-        e0=e0,
-        edge_step=np.asarray(edge_steps, dtype=float),
-        channel_names=list(bcr.channel_names),
-        meta=meta,
-        r=r_ref,
-        chir_mag=np.column_stack(chir_cols) if params.ft else None,
+        energy=bcr.energy, e0=e0, scan=scan_block, channel=channel_block, meta=meta
     )

@@ -45,6 +45,21 @@ uv run xas-batch-tree --force      # reprocess even files the catalog marks done
 `.env` keys: `XAS_INPUT_ROOT` (required), `XAS_OUTPUT_DIR` (optional), `XAS_DB_PATH`
 (optional; defaults to `<output-or-input root>/xas_catalog.sqlite`).
 
+## Processing modes (`--mode`)
+
+Each combined file bundles several *original scans* (one per BCR member file), and
+each scan contributed several detector channels — the header's `# Members (kept):`
+block records how many, in column order.
+
+- `--mode scan` **(default)** — sum each original file's channels into one total-
+  fluorescence μ(E) per scan (`nansum`, so a missing element doesn't poison the sum),
+  then process those. ~15 spectra for the Co3NK_s example.
+- `--mode channel` — process every μ column individually (~448 for Co3NK_s).
+- `--mode both` — compute and store *both* blocks in the one `.npz`.
+
+e0 is resolved once per file and shared across every column of every block, so the
+scan and channel blocks land on the **same k-grid**.
+
 ## Key options
 
 - `--e0 FLOAT` — force the edge energy for all channels.
@@ -55,9 +70,15 @@ uv run xas-batch-tree --force      # reprocess even files the catalog marks done
 
 ## Output
 
-One `<sample>.npz` per input file containing `energy`, `flat` (nE×nFF), `k`,
-`chi` (nk×nFF), `e0`, `edge_step`, `channel_names`, and JSON-encoded `meta`
-(optionally `r`, `chir_mag` when `--ft` is given).
+One `<sample>.npz` per input file. Shared arrays: `energy`, `e0`, JSON-encoded `meta`.
+Then a `scan_*` and/or `channel_*` block (whichever were computed):
+
+    scan_names, scan_flat (nE×nScans), scan_k, scan_chi (nk×nScans), scan_edge_step
+    channel_names, channel_flat (nE×nFF), channel_k, channel_chi (nk×nFF), channel_edge_step
+    (+ scan_r / scan_chir_mag, channel_r / channel_chir_mag when --ft is given)
+
+`meta` records `mode`, `modes_present`, `n_channels_raw`, `e0_used`/`e0_source`, and
+`scan_members` (the scan→channel-count mapping).
 
 ## Layout
 

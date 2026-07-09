@@ -80,9 +80,11 @@ def _process_one(task: tuple[str, str, Params]) -> dict:
         save_npz(result, out_path)
         rec.update(
             status="ok",
+            mode=result.meta.get("mode"),
             e0=result.e0,
             e0_source=result.meta.get("e0_source"),
-            n_channels=result.n_channels,
+            n_scans=result.n_scans,
+            n_channels=result.meta.get("n_channels_raw"),
             element=bcr.meta.get("element"),
             edge=bcr.meta.get("edge"),
             error=None,
