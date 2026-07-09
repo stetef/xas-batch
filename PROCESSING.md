@@ -95,6 +95,13 @@ header `E0_tab`. By **default** `find_e0` detects the edge from the **merged (me
 spectrum** — the highest-SNR estimate, so one noisy channel can't skew it. `--header-e0`
 switches to the tabulated value instead, and `--e0` forces a specific value.
 
+`find_edge` adds two noise guards (following catXAS's `calculate_spectrum_e0`): the
+derivative-max search is **restricted to `E0_tab ± 25 eV`** so a glitch or far feature
+can't hijack it, and μ is lightly **Savitzky-Golay smoothed** in that window first. Both
+are no-ops on the clean merged spectrum but matter for pathological files — and they are
+*why the merge is done first*: per-channel `find_e0` scatters ~±2.7 eV on this data
+(range ~13 eV), while the merged estimate is stable.
+
 - **Why `find_e0`, not the header, by default?** The header `E0_tab` (7709 eV for Co K)
   is the *reference foil's* tabulated calibration energy, used upstream to align the
   energy axis — not this sample's edge. `find_e0` returns the sample's own derivative-max

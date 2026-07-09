@@ -10,6 +10,7 @@ from __future__ import annotations
 import numpy as np
 from larch import Group
 from larch.xafs import autobk, find_e0, pre_edge, xftf
+from scipy.signal import savgol_filter
 
 from xasbatch.io import scan_groups
 from xasbatch.model import BatchResult, BcrData, Params, ProcessBlock
@@ -20,10 +21,33 @@ def build_group(energy: np.ndarray, mu: np.ndarray) -> Group:
     return Group(energy=np.asarray(energy, dtype=float), mu=np.asarray(mu, dtype=float))
 
 
-def find_edge(energy: np.ndarray, mu: np.ndarray) -> float:
-    """Detect the edge energy e0 via ``larch.xafs.find_e0``."""
-    group = build_group(energy, mu)
-    return float(find_e0(group.energy, group.mu, group=group))
+def find_edge(
+    energy: np.ndarray,
+    mu: np.ndarray,
+    e0_guess: float | None = None,
+    search_window: float = 25.0,
+    smooth: bool = True,
+    sg_window: int = 7,
+    sg_polyorder: int = 2,
+) -> float:
+    """Detect the edge energy e0 (derivative-max) via ``larch.xafs.find_e0``.
+
+    Noise guards (mirroring catXAS's ``calculate_spectrum_e0``): when ``e0_guess`` is
+    given (we pass the header ``E0_tab``), the search is restricted to
+    ``e0_guess ± search_window`` so a glitch or far feature can't hijack it, and μ is
+    lightly Savitzky-Golay smoothed within that window first. Both are no-ops on a clean
+    high-SNR spectrum but protect noisy or glitchy ones. Falls back to the full range if
+    no guess is given or the window holds too few points.
+    """
+    energy = np.asarray(energy, dtype=float)
+    mu = np.asarray(mu, dtype=float)
+    if e0_guess is not None:
+        m = (energy >= e0_guess - search_window) & (energy <= e0_guess + search_window)
+        if int(m.sum()) >= max(sg_window, 5):
+            energy, mu = energy[m], mu[m]
+    if smooth and mu.size > sg_window:
+        mu = savgol_filter(mu, sg_window, sg_polyorder)
+    return float(find_e0(energy, mu=mu, group=None))
 
 
 def normalize(group: Group, params: Params, e0: float) -> Group:
@@ -93,8 +117,9 @@ def resolve_e0(bcr: BcrData, params: Params) -> float:
 
     header_e0 = bcr.meta.get("e0_tab")
     if params.auto_e0 or header_e0 is None:
-        # detect from a representative (mean) column so a single noisy channel can't skew it
-        return find_edge(bcr.energy, bcr.mu.mean(axis=1))
+        # detect from the merged (mean) spectrum so a single noisy channel can't skew it,
+        # searching around the tabulated header edge as a robust guess
+        return find_edge(bcr.energy, bcr.mu.mean(axis=1), e0_guess=header_e0)
     return float(header_e0)
 
 

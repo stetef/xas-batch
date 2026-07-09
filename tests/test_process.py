@@ -9,7 +9,7 @@ import pytest
 
 from xasbatch.io import load_combined_bcr
 from xasbatch.model import Params
-from xasbatch.process import _sum_scans, process_batch
+from xasbatch.process import _sum_scans, find_edge, process_batch
 
 FIXTURE = Path(__file__).parent / "data" / "sample_small.bcr.combined"
 # fixture: 2 scans x 3 FF channels
@@ -93,6 +93,15 @@ def test_header_e0_when_requested(bcr):
     result = process_batch(bcr, Params(auto_e0=False))
     assert result.meta["e0_source"] == "header_e0_tab"
     assert result.e0 == pytest.approx(7709.0)
+
+
+def test_find_edge_window_rejects_out_of_window_glitch():
+    """A far glitch must not hijack e0 when a search guess is supplied."""
+    E = np.linspace(7389, 8569, 900)
+    mu = 1.0 / (1.0 + np.exp(-(E - 7714.0) / 2.0))  # smooth edge step at ~7714
+    mu[700] += 50.0  # spurious spike far above the edge (~8305)
+    e0 = find_edge(E, mu, e0_guess=7709.0)  # window ±25 excludes the spike
+    assert 7705.0 <= e0 <= 7725.0
 
 
 def test_explicit_e0_overrides(bcr):
