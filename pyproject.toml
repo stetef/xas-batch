@@ -4,10 +4,11 @@ version = "0.1.0"
 description = "Batch normalization + EXAFS extraction for combined-BCR fluorescence XAS files, via Larch."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["xraylarch"]
+dependencies = ["xraylarch", "tqdm", "python-dotenv"]
 
 [project.scripts]
 xas-batch = "xasbatch.cli:main"
+xas-batch-tree = "xasbatch.tree:main"
 
 [project.optional-dependencies]
 plot = ["matplotlib"]

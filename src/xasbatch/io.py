@@ -31,6 +31,18 @@ import numpy as np
 from xasbatch.model import BatchResult, BcrData
 
 COLUMNS_PREFIX = "# Columns:"
+COMBINED_SUFFIX = ".bcr.combined"
+
+
+def combined_stem(path: str | Path) -> str:
+    """Basename with the full ``.bcr.combined`` suffix stripped.
+
+    ``Co3NK_s.bcr.combined`` -> ``Co3NK_s`` (``Path.stem`` would leave ``Co3NK_s.bcr``).
+    """
+    name = Path(path).name
+    if name.endswith(COMBINED_SUFFIX):
+        return name[: -len(COMBINED_SUFFIX)]
+    return Path(name).stem
 
 
 def _read_header_lines(path: Path) -> list[str]:
@@ -173,16 +185,8 @@ def _json_safe(obj):
     return obj
 
 
-def save_result(result: BatchResult, outdir: str | Path) -> Path:
-    """Write a :class:`BatchResult` to ``<outdir>/<sample>.npz``; returns the path.
-
-    ``meta`` is JSON-encoded into a 0-d string array so it survives the npz round-trip.
-    """
-    outdir = Path(outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
-    sample = result.meta.get("sample") or Path(result.meta.get("source_path", "result")).stem
-    out_path = outdir / f"{sample}.npz"
-
+def _npz_arrays(result: BatchResult) -> dict:
+    """Build the array dict written to an ``.npz`` (meta JSON-encoded into a 0-d array)."""
     arrays = {
         "energy": result.energy,
         "flat": result.flat,
@@ -196,6 +200,22 @@ def save_result(result: BatchResult, outdir: str | Path) -> Path:
     if result.r is not None and result.chir_mag is not None:
         arrays["r"] = result.r
         arrays["chir_mag"] = result.chir_mag
+    return arrays
 
-    np.savez(out_path, **arrays)
+
+def save_npz(result: BatchResult, out_path: str | Path) -> Path:
+    """Write a :class:`BatchResult` to an exact ``.npz`` path (parents created)."""
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(out_path, **_npz_arrays(result))
     return out_path
+
+
+def save_result(result: BatchResult, outdir: str | Path) -> Path:
+    """Write a :class:`BatchResult` to ``<outdir>/<sample>.npz``; returns the path.
+
+    Filename is derived from ``meta["sample"]`` (falls back to the source stem).
+    For exact-basename / tree-mirrored output use :func:`save_npz` directly.
+    """
+    sample = result.meta.get("sample") or combined_stem(result.meta.get("source_path", "result"))
+    return save_npz(result, Path(outdir) / f"{sample}.npz")

@@ -6,21 +6,13 @@ import argparse
 import sys
 from pathlib import Path
 
-from xasbatch.io import load_combined_bcr, save_result
 from xasbatch.model import Params
-from xasbatch.process import process_batch
 
 GLOB = "*.bcr.combined"
 
 
-def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(
-        prog="xas-batch",
-        description="Normalize + extract EXAFS χ(k) from combined-BCR fluorescence files.",
-    )
-    p.add_argument("input", type=Path, help=f"a {GLOB} file, or a directory to scan for them")
-    p.add_argument("-o", "--outdir", type=Path, default=Path("out"), help="output dir (default: ./out)")
-
+def add_param_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """Add the processing-knob flags shared by ``xas-batch`` and ``xas-batch-tree``."""
     d = Params()
     e = p.add_mutually_exclusive_group()
     e.add_argument("--e0", type=float, default=None, help="force edge energy (eV) for all channels")
@@ -35,6 +27,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--kweight", type=int, default=d.kweight, help=f"k-weight (default: {d.kweight})")
     p.add_argument("--kstep", type=float, default=d.kstep, help=f"k step (default: {d.kstep})")
     p.add_argument("--ft", action="store_true", help="also compute the forward FT χ(R)")
+    return p
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="xas-batch",
+        description="Normalize + extract EXAFS χ(k) from combined-BCR fluorescence files.",
+    )
+    p.add_argument("input", type=Path, help=f"a {GLOB} file, or a directory to scan for them")
+    p.add_argument("-o", "--outdir", type=Path, default=Path("out"), help="output dir (default: ./out)")
+    add_param_args(p)
     return p
 
 
@@ -58,6 +61,11 @@ def params_from_args(args: argparse.Namespace) -> Params:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Larch is imported here (not at module top) so the shared arg helpers can be
+    # reused by xas-batch-tree without pulling Larch into the orchestrator process.
+    from xasbatch.io import load_combined_bcr, save_result
+    from xasbatch.process import process_batch
+
     args = build_parser().parse_args(argv)
     params = params_from_args(args)
 

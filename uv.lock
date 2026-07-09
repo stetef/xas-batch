@@ -2888,6 +2888,8 @@ name = "xas-batch"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "python-dotenv" },
+    { name = "tqdm" },
     { name = "xraylarch" },
 ]
 
@@ -2905,6 +2907,8 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "matplotlib", marker = "extra == 'plot'" },
+    { name = "python-dotenv" },
+    { name = "tqdm" },
     { name = "xraylarch" },
 ]
 provides-extras = ["plot"]

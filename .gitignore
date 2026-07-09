@@ -8,6 +8,12 @@ __pycache__/
 # uv / venv
 .venv/
 
+# local env + catalog
+.env
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
 # outputs
 /out/
 *.npz
