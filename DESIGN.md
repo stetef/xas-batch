@@ -92,6 +92,9 @@ Per spectrum (`process.py`): `larch.Group(energy, mu)` → `pre_edge` (sets
 `.r/.chir_mag`). `_process_matrix` runs this over a matrix of columns and stacks the
 results, asserting every column returns the same-length `k`.
 
+> For the numerical detail — that AUTOBK splines the **raw** μ(E) (not `flat`/`norm`),
+> how χ(k) is defined, and what each parameter changes — see **[PROCESSING.md](PROCESSING.md)**.
+
 ### e0 is resolved once per file
 
 Resolution order (`resolve_e0`): explicit `Params.e0` > header `E0_tab` > `find_e0`.

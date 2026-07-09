@@ -11,8 +11,9 @@ flattened), runs an AUTOBK background spline, and extracts χ(k) on a shared k-g
 then stacks the results and writes one `.npz` per file. Energy calibration and I0
 division are assumed already done upstream.
 
-See [DESIGN.md](DESIGN.md) for the file format, architecture, and the rationale behind
-the design choices.
+See [PROCESSING.md](PROCESSING.md) for exactly what the pipeline does to the data (what
+gets splined, how χ(k) is defined, what each parameter changes), and [DESIGN.md](DESIGN.md)
+for the file format, architecture, and rationale.
 
 ## Setup
 
