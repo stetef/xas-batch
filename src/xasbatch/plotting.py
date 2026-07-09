@@ -87,7 +87,7 @@ def plot_norm_fits(energy, groups, names, e0, fig=None):
         left.text(0.02, 0.95, name, transform=left.transAxes, ha="left", va="top",
                   fontsize=12, color="black")
         # E0 + edge step reported per scan (no box), so a future per-scan e0 shows here
-        left.text(0.30, 0.32, rf"$E_0 = {e0:.1f}$ eV" "\n" rf"$\Delta\mu_0 = {g.edge_step:.3f}$",
+        left.text(0.55, 0.32, rf"$E_0 = {e0:.1f}$ eV" "\n" rf"$\Delta\mu_0 = {g.edge_step:.3f}$",
                   transform=left.transAxes, ha="left", va="center", fontsize=12)
         right.plot(energy, g.flat, color=_C_FLAT, lw=1.4)
         right.axhline(1.0, color="0.7", lw=0.8, ls=":")
