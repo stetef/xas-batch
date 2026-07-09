@@ -1,5 +1,7 @@
 # xas-batch
 
+[![CI](https://github.com/stetef/xas-batch/actions/workflows/ci.yml/badge.svg)](https://github.com/stetef/xas-batch/actions/workflows/ci.yml)
+
 Batch normalization + EXAFS extraction for **combined-BCR** fluorescence XAS files,
 via [Larch](https://xraypy.github.io/xraylarch/).
 
