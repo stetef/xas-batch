@@ -123,9 +123,12 @@ are no-ops on a clean high-SNR spectrum but matter for noisy/glitchy ones.
   you may know from **FEFF/path fitting** is a *downstream* fit parameter (out of scope
   here); if you fit paths later, that ΔE0 harmlessly absorbs the extraction-e0 choice.
 
-The output k array is a uniform grid independent of e0, so all spectra stack into a
-matrix regardless (asserted in `_process_matrix`); the ~0.08 eV per-scan e0 spread only
-shifts each scan's k-origin negligibly.
+A single `kmax` is resolved **once per file** — from the *highest* e0 in use (its data
+covers the smallest k range), floored to a `kstep` multiple — and applied to every scan,
+the merged, and every channel. So they all share an **identical** k-grid
+`[kmin, kmin+kstep, …, kmax]` regardless of their individual e0; only the E→k *mapping*
+shifts by the tiny per-scan e0 spread (~0.08 eV). Recorded as `kmax_used` in `meta`. (An
+explicit `--kmax` is used verbatim instead.)
 
 ## Step 3 — `xftf` (optional forward FT)
 
@@ -153,7 +156,7 @@ backgrounds differ.)
 | `norm1`, `norm2` | 150, None(file end) | pre_edge | post-edge fit window (eV rel. e0) |
 | `nnorm` | 2 | pre_edge | post-edge polynomial degree |
 | `rbkg` | 1.0 | autobk | R below which signal is treated as background (Å) |
-| `kmin`, `kmax` | 0.0, `None` | autobk | χ(k) range (`None` = full) |
+| `kmin`, `kmax` | 0.0, `None` | autobk | χ(k) range (`None` = one shared kmax/file from the data) |
 | `kweight` | 1 | autobk | k-weight for the background-fit FFT |
 | `kstep` | 0.05 | autobk | χ(k) k-grid step (Å⁻¹) |
 | `ft`, `ft_kmin`, `ft_kmax`, `ft_kweight`, `ft_dk` | off, 3, 12, 2, 5 | xftf | optional forward FT |

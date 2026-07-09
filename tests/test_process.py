@@ -43,13 +43,20 @@ def test_channel_mode(bcr):
     assert result.channel.chi.shape[1] == N_CHANNELS
 
 
-def test_both_mode_shares_e0_and_kgrid(bcr):
+def test_both_mode_shares_kgrid(bcr):
     result = process_batch(bcr, Params(mode="both"))
     assert result.scan is not None and result.channel is not None
     assert result.n_scans == N_SCANS and result.n_channels == N_CHANNELS
     assert result.meta["modes_present"] == ["scan", "channel"]
-    # single e0 for the file -> scan and channel blocks land on the same k-grid
-    np.testing.assert_allclose(result.scan.k, result.channel.k)
+    # one kmax per file -> scan and channel blocks land on an IDENTICAL k-grid
+    np.testing.assert_array_equal(result.scan.k, result.channel.k)
+
+
+def test_kgrid_is_uniform_kstep(bcr):
+    result = process_batch(bcr, Params(mode="scan"))
+    k = result.scan.k
+    assert np.allclose(np.diff(k), Params().kstep)  # uniform kstep grid, k=0..kmax
+    assert k[0] == pytest.approx(Params().kmin)
 
 
 def test_sum_scans_groups_and_sums(bcr):

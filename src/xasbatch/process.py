@@ -7,6 +7,8 @@ param bundling) does not apply to these already-calibrated, I0-divided files.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 from larch import Group
 from larch.xafs import autobk, find_e0, pre_edge, xftf
@@ -14,6 +16,31 @@ from scipy.signal import savgol_filter
 
 from xasbatch.io import scan_groups
 from xasbatch.model import BatchResult, BcrData, Params, ProcessBlock
+
+# k [Å⁻¹] = sqrt(ETOK * (E - e0) [eV]); matches Larch's photoelectron-wavenumber constant.
+ETOK = 0.2624682843
+
+
+def _shared_kmax(energy: np.ndarray, kstep: float, e0_hi: float) -> float:
+    """Largest k (floored to a kstep multiple) the data covers for the highest e0.
+
+    Using the *highest* e0 (whose data spans the smallest k range) guarantees no
+    spectrum extrapolates past its data when this single kmax is applied to all.
+    """
+    kmax_full = float(np.sqrt(ETOK * (float(np.max(energy)) - e0_hi)))
+    return float(np.floor(kmax_full / kstep) * kstep)
+
+
+def _effective_params(energy: np.ndarray, params: Params, e0_values) -> Params:
+    """Params with ``kmax`` resolved once per file so every spectrum shares one k-grid.
+
+    When ``params.kmax`` is None (auto), derive a single kmax from the highest e0 in use;
+    an explicit ``params.kmax`` is passed through unchanged.
+    """
+    if params.kmax is not None:
+        return params
+    kmax = _shared_kmax(energy, params.kstep, float(np.max(e0_values)))
+    return replace(params, kmax=kmax)
 
 
 def build_group(energy: np.ndarray, mu: np.ndarray) -> Group:
@@ -206,20 +233,23 @@ def _sum_scans(bcr: BcrData) -> tuple[list[str], np.ndarray, list[dict]]:
 def process_scans(bcr: BcrData, params: Params):
     """Process the per-scan summed spectra (each with its own e0), keeping the groups.
 
-    Returns ``(e0_merged, names, scan_mu, groups, scan_e0s)``: ``scan_mu`` is the raw
-    summed μ(E) per scan (nE×nScans), ``groups`` are the processed Larch groups (with
+    Returns ``(e0_merged, names, scan_mu, groups, scan_e0s, merged)``: ``scan_mu`` is the
+    raw summed μ(E) per scan (nE×nScans), ``groups`` are the processed Larch groups (with
     ``.pre_edge/.post_edge/.norm/.flat/.bkg/.k/.chi``), ``scan_e0s`` is the per-scan e0,
-    and ``e0_merged`` is e0 of the mean-of-scans μ (the merged spectrum). Used by the
+    ``e0_merged`` is e0 of the mean-of-scans μ, and ``merged`` is that mean-μ spectrum
+    processed through the same pipeline. All share one k-grid (resolved kmax). Used by the
     plotting layer, which needs the intermediate fit curves ``process_batch`` discards.
     """
     e0_merged = resolve_e0(bcr, params)
     names, scan_mu, _ = _sum_scans(bcr)
     scan_e0s = resolve_scan_e0s(bcr, params, scan_mu)
+    eff = _effective_params(bcr.energy, params, [e0_merged, *scan_e0s])
     groups = [
-        process_channel(bcr.energy, scan_mu[:, j], params, float(scan_e0s[j]))
+        process_channel(bcr.energy, scan_mu[:, j], eff, float(scan_e0s[j]))
         for j in range(scan_mu.shape[1])
     ]
-    return e0_merged, names, scan_mu, groups, scan_e0s
+    merged = process_channel(bcr.energy, scan_mu.mean(axis=1), eff, e0_merged)
+    return e0_merged, names, scan_mu, groups, scan_e0s, merged
 
 
 def process_batch(bcr: BcrData, params: Params) -> BatchResult:
@@ -242,16 +272,24 @@ def process_batch(bcr: BcrData, params: Params) -> BatchResult:
 
     scan_block = channel_block = None
     scan_members = scan_e0s = None
+    names = scan_mu = None
     if params.mode in ("scan", "both"):
         names, scan_mu, scan_members = _sum_scans(bcr)
         scan_e0s = resolve_scan_e0s(bcr, params, scan_mu)
-        scan_block = _process_matrix(bcr.energy, scan_mu, names, params, scan_e0s)
+
+    # one kmax per file (from the highest e0) so every block shares an identical k-grid
+    e0_pool = [e0_merged] + ([] if scan_e0s is None else list(scan_e0s))
+    eff = _effective_params(bcr.energy, params, e0_pool)
+
+    if params.mode in ("scan", "both"):
+        scan_block = _process_matrix(bcr.energy, scan_mu, names, eff, scan_e0s)
     if params.mode in ("channel", "both"):
-        channel_block = _process_matrix(bcr.energy, bcr.mu, bcr.channel_names, params, e0_merged)
+        channel_block = _process_matrix(bcr.energy, bcr.mu, bcr.channel_names, eff, e0_merged)
 
     meta = dict(bcr.meta)
     meta["e0_used"] = e0_merged
     meta["e0_merged"] = e0_merged
+    meta["kmax_used"] = eff.kmax
     meta["e0_source"] = (
         "explicit"
         if params.e0 is not None

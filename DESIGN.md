@@ -104,8 +104,9 @@ channel can't skew it; `--header-e0` uses the tabulated value instead.
 The **scan** block uses a **per-scan e0** (each summed scan is high-SNR; ⟨E₀⟩≈7714.4 ±
 0.08 eV here), stored as `scan_e0`. The **channel** block uses the **merged e0** (shared)
 — per-channel `find_e0` is scattered *and biased* (argmax is nonlinear; average-then-find
-≠ find-then-average). The output k array is a uniform grid independent of e0, so all
-spectra still stack into a matrix; `edge_step` is per column throughout.
+≠ find-then-average). A single `kmax` is resolved per file (from the highest e0, floored
+to a `kstep` multiple), so every scan/merged/channel shares an **identical** k-grid
+regardless of e0; `edge_step` is per column throughout.
 
 > **Why `find_e0` by default, not the header?** The header `E0_tab` (7709 for Co K) is
 > the *reference foil's* calibration energy, not this sample's edge. `find_e0` returns

@@ -181,18 +181,15 @@ def plot_exafs(energy, groups, names, e0, merged=None, kweight=3, fig=None):
 
 def figure_report(bcr, params, kweight=3) -> list[tuple[str, Figure]]:
     """Build all four processing figures for one file. Returns [(label, Figure), ...]."""
-    from xasbatch.process import process_channel, process_scans
+    from xasbatch.process import process_scans
 
-    e0_merged, names, scan_mu, groups, scan_e0s = process_scans(bcr, params)
+    # process_scans merges in E space and carries it through on one shared k-grid.
+    e0_merged, names, scan_mu, groups, scan_e0s, merged = process_scans(bcr, params)
     energy = bcr.energy
-
-    # Merge in E space, then carry it through: average μ(E), run the SAME pipeline once.
-    merged_mu = scan_mu.mean(axis=1)
-    merged = process_channel(energy, merged_mu, params, e0_merged)
 
     with plt.rc_context(_RC):
         f_raw = plt.figure(figsize=(8, 4.8))
-        plot_raw(energy, scan_mu, names, merged_mu=merged_mu, ax=f_raw.gca())
+        plot_raw(energy, scan_mu, names, merged_mu=merged.mu, ax=f_raw.gca())
 
         f_norm = plot_norm_fits(energy, groups, names, scan_e0s, e0_merged=e0_merged)
 
