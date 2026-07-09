@@ -1,0 +1,82 @@
+"""Data model for xasbatch.
+
+Pure numpy dataclasses — no Larch import here, so I/O and the data model stay
+unit-testable without the heavy Larch dependency.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+import numpy as np
+
+
+@dataclass
+class BcrData:
+    """One combined-BCR file: a shared energy grid + N pre-computed mu channels."""
+
+    energy: np.ndarray  # (nE,) ascending
+    mu: np.ndarray  # (nE, nFF) the FF*/I0 channels
+    channel_names: list[str]  # len nFF, e.g. ["FF1/I0", ...]
+    rtc: np.ndarray | None = None  # (nE, nRTC) ignored for processing, kept for provenance
+    rtc_names: list[str] = field(default_factory=list)
+    meta: dict = field(default_factory=dict)
+
+    @property
+    def n_energy(self) -> int:
+        return self.energy.shape[0]
+
+    @property
+    def n_channels(self) -> int:
+        return self.mu.shape[1]
+
+
+@dataclass
+class Params:
+    """Processing knobs, with sensible Co-K defaults.
+
+    e0 resolution order at batch time: explicit ``e0`` > header ``E0_tab`` >
+    (only when ``auto_e0``) Larch ``find_e0``.
+    """
+
+    e0: float | None = None  # explicit override; None -> use header E0_tab (or auto if auto_e0)
+    auto_e0: bool = False  # when True and e0 is None, detect once via find_e0
+    # pre-edge / normalization
+    pre1: float = -100.0
+    pre2: float = -50.0
+    norm1: float = 75.0
+    norm2: float = 300.0
+    nnorm: int = 2
+    # autobk -> chi(k)
+    rbkg: float = 1.0
+    kmin: float = 0.0
+    kmax: float | None = None  # None -> Larch default (uses full k range)
+    kweight: int = 1
+    kstep: float = 0.05
+    # optional forward FT
+    ft: bool = False
+    ft_kmin: float = 3.0
+    ft_kmax: float = 12.0
+    ft_kweight: int = 2
+    ft_dk: float = 5.0
+
+
+@dataclass
+class BatchResult:
+    """Stacked results for all channels of one file, on a shared k-grid."""
+
+    energy: np.ndarray  # (nE,)
+    flat: np.ndarray  # (nE, nFF) flattened mu(E) per channel
+    k: np.ndarray  # (nk,) shared across channels
+    chi: np.ndarray  # (nk, nFF)
+    e0: float
+    edge_step: np.ndarray  # (nFF,) per-channel edge jump
+    channel_names: list[str]
+    meta: dict = field(default_factory=dict)
+    # optional forward FT (populated only when Params.ft is True)
+    r: np.ndarray | None = None  # (nR,)
+    chir_mag: np.ndarray | None = None  # (nR, nFF)
+
+    @property
+    def n_channels(self) -> int:
+        return self.chi.shape[1]
