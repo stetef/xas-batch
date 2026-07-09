@@ -79,6 +79,7 @@ ipython_config.py
 
 # processed outputs
 /out/
+/plots/
 *.npz
 
 # OS
