@@ -157,12 +157,11 @@ def plot_exafs(energy, groups, names, e0, merged=None, kweight=3, fig=None):
 
     above = energy >= e0  # the region the spline actually models
     for g in groups:
-        ax_bkg.plot(energy[above], g.norm[above], **_SCAN)
-        ax_bkg.plot(energy[above], _norm_bkg(g)[above], color=_SCAN["color"], lw=0.8, ls="--", alpha=0.55)
+        ax_bkg.plot(energy[above], g.norm[above], **_SCAN)  # per-scan normalized μ (spread)
     if merged is not None:
         ax_bkg.plot(energy[above], merged.norm[above], label=r"merged $\mu$", **_MERGED)
         ax_bkg.plot(energy[above], _norm_bkg(merged)[above], color=_C_BKG, lw=1.8, ls="--", zorder=6, label="merged bkg")
-    ax_bkg.set_ylim(bottom=0)  # normalized μ starts at 0
+    ax_bkg.set_ylim(bottom=0.6)  # focus on the post-edge region
     ax_bkg.set(xlabel="Energy (eV)", ylabel=r"normalized $\mu$", title=r"Normalized $\mu$ + AUTOBK spline")
     ax_bkg.legend(loc="lower right")
     _finish(ax_bkg)
