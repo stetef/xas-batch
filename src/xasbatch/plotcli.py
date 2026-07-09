@@ -26,9 +26,15 @@ def build_parser() -> argparse.ArgumentParser:
     # processing knobs (edge/normalization/spline)
     p.add_argument("--e0", type=float, default=None, help="force edge energy (eV)")
     p.add_argument("--auto-e0", action="store_true", help="detect e0 via find_e0 (default: header E0_tab)")
-    p.add_argument("--rbkg", type=float, default=Params().rbkg, help="AUTOBK rbkg")
-    p.add_argument("--kmin", type=float, default=Params().kmin, help="χ(k) kmin")
-    p.add_argument("--kmax", type=float, default=Params().kmax, help="χ(k) kmax")
+    d = Params()
+    p.add_argument("--pre1", type=float, default=d.pre1, help="pre-edge fit start, eV rel. e0 (default: file start)")
+    p.add_argument("--pre2", type=float, default=d.pre2, help=f"pre-edge fit end, eV rel. e0 (default: {d.pre2})")
+    p.add_argument("--norm1", type=float, default=d.norm1, help=f"post-edge fit start, eV rel. e0 (default: {d.norm1})")
+    p.add_argument("--norm2", type=float, default=d.norm2, help="post-edge fit end, eV rel. e0 (default: file end)")
+    p.add_argument("--nnorm", type=int, default=d.nnorm, help=f"post-edge polynomial degree (default: {d.nnorm})")
+    p.add_argument("--rbkg", type=float, default=d.rbkg, help="AUTOBK rbkg")
+    p.add_argument("--kmin", type=float, default=d.kmin, help="χ(k) kmin")
+    p.add_argument("--kmax", type=float, default=d.kmax, help="χ(k) kmax")
     return p
 
 
@@ -46,6 +52,7 @@ def main(argv: list[str] | None = None) -> int:
 
     params = Params(
         mode="scan", e0=args.e0, auto_e0=args.auto_e0,
+        pre1=args.pre1, pre2=args.pre2, norm1=args.norm1, norm2=args.norm2, nnorm=args.nnorm,
         rbkg=args.rbkg, kmin=args.kmin, kmax=args.kmax,
     )
     bcr = load_combined_bcr(args.input)

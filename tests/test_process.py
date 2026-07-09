@@ -63,6 +63,19 @@ def test_sum_scans_groups_and_sums(bcr):
     np.testing.assert_allclose(scan_mu[:, 1], np.nansum(bcr.mu[:, 3:6], axis=1))
 
 
+def test_flattening_flat_far_post_edge(bcr):
+    """Data-spanning norm range should flatten to ~1.0 far above the edge.
+
+    Guards against the narrow-window default (norm2=300) whose extrapolated
+    polynomial droops badly at high energy.
+    """
+    result = process_batch(bcr, Params(mode="scan"))
+    hi = result.energy > (result.e0 + 400)
+    flat_hi = result.scan.flat[hi, 0]
+    assert abs(float(np.nanmean(flat_hi)) - 1.0) < 0.05
+    assert float(np.nanmax(flat_hi) - np.nanmin(flat_hi)) < 0.1
+
+
 def test_edge_step_positive(bcr):
     result = process_batch(bcr, Params(mode="both"))
     assert np.all(result.scan.edge_step > 0)

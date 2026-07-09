@@ -27,6 +27,11 @@ def add_param_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
         action="store_true",
         help="detect e0 per file via find_e0 (default: trust header E0_tab)",
     )
+    p.add_argument("--pre1", type=float, default=d.pre1, help="pre-edge fit start, eV rel. e0 (default: file start)")
+    p.add_argument("--pre2", type=float, default=d.pre2, help=f"pre-edge fit end, eV rel. e0 (default: {d.pre2})")
+    p.add_argument("--norm1", type=float, default=d.norm1, help=f"post-edge fit start, eV rel. e0 (default: {d.norm1})")
+    p.add_argument("--norm2", type=float, default=d.norm2, help="post-edge fit end, eV rel. e0 (default: file end)")
+    p.add_argument("--nnorm", type=int, default=d.nnorm, help=f"post-edge polynomial degree (default: {d.nnorm})")
     p.add_argument("--rbkg", type=float, default=d.rbkg, help=f"AUTOBK rbkg (default: {d.rbkg})")
     p.add_argument("--kmin", type=float, default=d.kmin, help=f"χ(k) kmin (default: {d.kmin})")
     p.add_argument("--kmax", type=float, default=d.kmax, help="χ(k) kmax (default: full range)")
@@ -67,6 +72,11 @@ def params_from_args(args: argparse.Namespace) -> Params:
         mode=args.mode,
         e0=args.e0,
         auto_e0=args.auto_e0,
+        pre1=args.pre1,
+        pre2=args.pre2,
+        norm1=args.norm1,
+        norm2=args.norm2,
+        nnorm=args.nnorm,
         rbkg=args.rbkg,
         kmin=args.kmin,
         kmax=args.kmax,

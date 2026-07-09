@@ -42,11 +42,14 @@ class Params:
     mode: str = "scan"  # "scan" (sum each original file's channels) | "channel" | "both"
     e0: float | None = None  # explicit override; None -> use header E0_tab (or auto if auto_e0)
     auto_e0: bool = False  # when True and e0 is None, detect once via find_e0
-    # pre-edge / normalization
-    pre1: float = -100.0
-    pre2: float = -50.0
-    norm1: float = 75.0
-    norm2: float = 300.0
+    # pre-edge / normalization (eV relative to e0). The spans default to the data
+    # extremes (None); pinning only the offsets pre2/norm1 keeps the post-edge
+    # polynomial fit across the whole range, which flattens far better than a
+    # narrow near-edge window extrapolated outward.
+    pre1: float | None = None  # pre-edge fit start; None -> file start
+    pre2: float = -50.0  # pre-edge fit end (stay below the edge onset)
+    norm1: float = 75.0  # post-edge fit start (above the XANES / white line)
+    norm2: float | None = None  # post-edge fit end; None -> file end
     nnorm: int = 2
     # autobk -> chi(k)
     rbkg: float = 1.0

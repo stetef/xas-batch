@@ -27,10 +27,16 @@ what gets splined.
 
 Fits two curves to raw μ(E), relative to the edge energy `e0`:
 
-- a **pre-edge line** over `[e0+pre1, e0+pre2]` (default −100 … −50 eV), extrapolated
-  across the whole range;
-- a **post-edge polynomial** (degree `nnorm`, default 2) over `[e0+norm1, e0+norm2]`
-  (default +75 … +300 eV).
+- a **pre-edge line** over `[e0+pre1, e0+pre2]`, extrapolated across the whole range;
+- a **post-edge polynomial** (degree `nnorm`, default 2) over `[e0+norm1, e0+norm2]`.
+
+**The fit ranges span the data by default.** Only the offsets are pinned — `pre2 = −50`
+(stay below the edge onset) and `norm1 = +75` (start above the XANES / white line) —
+while `pre1` and `norm2` default to `None`, which Larch resolves to the **file's first
+and last energy**. Fitting the post-edge polynomial across the *whole* range (rather
+than a narrow near-edge window extrapolated outward) is what makes the flattened μ sit
+flat at ≈1.0 out to high k; a narrow `norm2` produces a drooping, unusable flat μ. All
+four bounds are overridable (`--pre1/--pre2/--norm1/--norm2`, and `--nnorm`).
 
 From these it sets:
 
@@ -103,8 +109,8 @@ backgrounds differ.)
 | `mode` | `scan` | — | `scan` (sum each file's channels) / `channel` / `both` |
 | `e0` | `None` | e0 | force edge energy; `None` → header `E0_tab` |
 | `auto_e0` | `False` | e0 | detect e0 via `find_e0` instead of the header |
-| `pre1`, `pre2` | −100, −50 | pre_edge | pre-edge fit window (eV rel. e0) |
-| `norm1`, `norm2` | 75, 300 | pre_edge | post-edge fit window (eV rel. e0) |
+| `pre1`, `pre2` | None(file start), −50 | pre_edge | pre-edge fit window (eV rel. e0) |
+| `norm1`, `norm2` | 75, None(file end) | pre_edge | post-edge fit window (eV rel. e0) |
 | `nnorm` | 2 | pre_edge | post-edge polynomial degree |
 | `rbkg` | 1.0 | autobk | R below which signal is treated as background (Å) |
 | `kmin`, `kmax` | 0.0, `None` | autobk | χ(k) range (`None` = full) |
