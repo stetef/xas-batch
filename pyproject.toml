@@ -12,9 +12,11 @@ dependencies = ["xraylarch", "tqdm", "python-dotenv"]
 xas-batch = "xasbatch.cli:main"
 xas-batch-tree = "xasbatch.tree:main"
 xas-batch-plot = "xasbatch.plotcli:main"
+xas-batch-view = "xasbatch.viewcli:main"
 
 [project.optional-dependencies]
 plot = ["matplotlib"]
+viewer = ["streamlit", "plotly", "matplotlib"]
 
 [dependency-groups]
 dev = ["pytest", "ruff"]

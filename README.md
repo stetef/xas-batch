@@ -18,8 +18,8 @@ for the file format, architecture, and rationale.
 ## Setup
 
 ```bash
-uv sync
-uv run pytest        # 25 tests, ~3s
+uv sync                       # core; add --extra viewer for the interactive app
+uv run pytest                 # fast; viewer/plotly tests skip if the extra isn't synced
 ```
 
 ## Process one file (or a flat directory)
@@ -40,7 +40,13 @@ uv run xas-batch-tree              # parallel over all *.bcr.combined under XAS_
 uv run xas-batch-tree --jobs 8     # worker count (default: cpu_count-1; 1 = serial)
 uv run xas-batch-tree --limit 8    # first N files only (trial run)
 uv run xas-batch-tree --force      # reprocess even files the catalog marks done
+uv run xas-batch-tree --plots      # also write the 4 PNGs per sample (opt-in; needs matplotlib)
 ```
+
+`--plots` mirrors the input tree under `<out-or-root>/plots/` (override with `--plots-dir`
+or `XAS_PLOTS_DIR`), writing `<rel>/<sample>/{1_raw,2_norm_fits,3_flat,4_exafs}.png`. It's
+off by default so the normal batch stays fast; for day-to-day browsing prefer the
+interactive viewer below, which renders the same figures live.
 
 - **Output:** mirrored under `XAS_OUTPUT_DIR` preserving the tree, or (if unset) a
   sister `.npz` next to each source file.
@@ -91,6 +97,27 @@ The plotting functions in `plotting.py` are reusable, so a notebook/Streamlit fr
 can call them directly. (matplotlib comes in transitively via Larch; the `plot` extra
 declares it explicitly: `uv sync --extra plot`.)
 
+## Interactive viewer (`xas-batch-view`)
+
+A Streamlit + Plotly app for browsing the fits: search by sample, filter by element /
+session, and get the four figures with **native zoom / pan / hover**. It renders **live**
+from each `.bcr.combined` using the exact params recorded in the catalog, so the view
+always matches the batch (nothing depends on pre-baked PNGs).
+
+```bash
+uv sync --extra viewer          # streamlit + plotly + matplotlib
+uv run xas-batch-view           # auto-discovers the catalog from .env / ./out
+uv run xas-batch-view --db path/to/xas_catalog.sqlite
+```
+
+Since one file processes in ~50 ms, selecting a sample re-renders instantly. Files marked
+`skipped`/`error` in the catalog show their reason and still attempt a live render.
+
+The sidebar also has a **QC review** panel: flag the current sample 🟡/🔴, pick issues from a
+fixed vocabulary and/or write a note. Flags accumulate for the session and export to
+`xas_qc_flags.txt` (human-readable) or `.jsonl` (machine-readable) — a punch-list for
+improving the processing parameters/heuristics.
+
 ## Options
 
 - `--mode {scan,channel,both}` — see above.
@@ -131,5 +158,7 @@ in the plots.
 | `model.py`, `io.py` | pure numpy — data model, header parser, npz I/O, scan grouping |
 | `process.py` | the Larch layer (`pre_edge`, `autobk`, `xftf`) |
 | `catalog.py` | SQLite catalog for tree runs |
-| `plotting.py` | matplotlib panel builders (optional; separate from core) |
+| `plotting.py` | matplotlib panel builders → PNGs (optional; separate from core) |
+| `plotlyplots.py` | Plotly twins of the panels → interactive figures (same processing) |
+| `viewer_app.py`, `viewcli.py` | the Streamlit fit viewer + its `xas-batch-view` launcher |
 | `cli.py`, `tree.py`, `plotcli.py` | the `xas-batch`, `xas-batch-tree`, `xas-batch-plot` entry points |

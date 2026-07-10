@@ -6,7 +6,7 @@ from pathlib import Path
 
 from xasbatch import catalog
 from xasbatch.io import combined_stem
-from xasbatch.tree import output_path_for
+from xasbatch.tree import output_path_for, plot_dir_for
 
 
 def test_combined_stem_strips_full_suffix():
@@ -30,6 +30,16 @@ def test_output_path_mirrors_tree(tmp_path):
     outdir = tmp_path / "out"
     out = output_path_for(src, root, outdir)
     assert out == outdir / "2018_May" / "deep" / "Sample_B.npz"  # structure preserved
+
+
+def test_plot_dir_mirrors_tree(tmp_path):
+    root = tmp_path / "in"
+    src = root / "2018_May" / "Sample_B.bcr.combined"
+    src.parent.mkdir(parents=True)
+    src.touch()
+    plots_root = tmp_path / "plots"
+    # one dir per sample, mirrored under the plots root (no collisions across sessions)
+    assert plot_dir_for(src, root, plots_root) == plots_root / "2018_May" / "Sample_B"
 
 
 def test_catalog_record_and_resume(tmp_path):

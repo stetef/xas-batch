@@ -73,10 +73,36 @@ def output_path_for(src: Path, input_root: Path, output_dir: Path | None) -> Pat
     return output_dir / rel / (stem + ".npz")
 
 
+def plot_dir_for(src: Path, input_root: Path, plots_root: Path) -> Path:
+    """Per-sample PNG directory: ``<plots_root>/<mirrored rel>/<sample>/``.
+
+    Mirrors the input tree (like :func:`output_path_for`) so same-named samples in
+    different sessions don't collide.
+    """
+    rel = src.resolve().relative_to(input_root.resolve()).parent
+    return plots_root / rel / combined_stem(src)
+
+
 # ---------------------------------------------------------------------- worker
-def _process_one(task: tuple[str, str, Params]) -> dict:
+def _save_plots(bcr, params: Params, plot_dir: str) -> None:
+    """Render the four PNGs for one file into ``plot_dir`` (headless Agg)."""
+    import matplotlib
+
+    matplotlib.use("Agg")  # headless save; safe to call per worker
+    import matplotlib.pyplot as plt
+
+    from xasbatch.plotting import figure_report
+
+    out = Path(plot_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    for label, fig in figure_report(bcr, params):
+        fig.savefig(out / f"{label}.png", dpi=120, bbox_inches="tight")
+        plt.close(fig)
+
+
+def _process_one(task: tuple[str, str, Params, str | None]) -> dict:
     """Load → process → save one file; return a catalog record. Never raises."""
-    src, out_path, params = task
+    src, out_path, params, plot_dir = task
     src_p = Path(src)
     rec = {
         "source_path": str(src_p),
@@ -97,6 +123,12 @@ def _process_one(task: tuple[str, str, Params]) -> dict:
                        edge=bcr.meta.get("edge"), error=str(exc))
             return rec
         save_npz(result, out_path)
+        if plot_dir is not None:
+            # opt-in PNGs; a plotting failure must not undo the successful npz
+            try:
+                _save_plots(bcr, params, plot_dir)
+            except Exception as exc:  # noqa: BLE001
+                rec["plot_error"] = f"{type(exc).__name__}: {exc}"
         rec.update(
             status="ok",
             mode=result.meta.get("mode"),
@@ -131,6 +163,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--force", action="store_true", help="reprocess even files the catalog marks done")
     p.add_argument("--limit", type=int, default=None, help="process at most N files (for testing)")
+    p.add_argument("--plots", action="store_true",
+                   help="also render the 4 processing PNGs per sample (needs matplotlib)")
+    p.add_argument("--plots-dir", type=Path, default=None,
+                   help="where PNGs go (default: XAS_PLOTS_DIR, else <out-or-root>/plots)")
     add_param_args(p)
     return p
 
@@ -161,6 +197,18 @@ def main(argv: list[str] | None = None) -> int:
 
     params = params_from_args(args)
 
+    plots_root = None
+    if args.plots:
+        try:
+            import matplotlib  # noqa: F401
+        except ModuleNotFoundError:
+            print("--plots needs matplotlib: install the plot extra "
+                  "(uv pip install -e '.[plot]')", file=sys.stderr)
+            return 2
+        plots_val = args.plots_dir or env_get(env, "XAS_PLOTS_DIR")
+        plots_root = (Path(plots_val).expanduser() if plots_val
+                      else (output_dir or input_root) / "plots")
+
     files = sorted(input_root.rglob(GLOB))
     if args.limit is not None:
         files = files[: args.limit]
@@ -176,12 +224,14 @@ def main(argv: list[str] | None = None) -> int:
         if not args.force and catalog.is_done(conn, str(src), mtime):
             skipped += 1
             continue
-        tasks.append((str(src), str(output_path_for(src, input_root, output_dir)), params))
+        plot_dir = str(plot_dir_for(src, input_root, plots_root)) if plots_root else None
+        tasks.append((str(src), str(output_path_for(src, input_root, output_dir)), params, plot_dir))
 
     dest = "sister files" if output_dir is None else str(output_dir)
+    plots_note = f" | plots -> {plots_root}" if plots_root else ""
     print(
         f"{len(files)} files under {input_root} | {skipped} already done, "
-        f"{len(tasks)} to process | jobs={args.jobs} | -> {dest} | catalog: {db_path}"
+        f"{len(tasks)} to process | jobs={args.jobs} | -> {dest}{plots_note} | catalog: {db_path}"
     )
 
     ok = err = qc_skipped = 0
@@ -190,6 +240,8 @@ def main(argv: list[str] | None = None) -> int:
         nonlocal ok, err, qc_skipped
         catalog.record(conn, rec)
         name = Path(rec["source_path"]).name
+        if rec.get("plot_error"):
+            tqdm.write(f"PLOT  {name}: {rec['plot_error']} (npz still saved)")
         if rec["status"] == "ok":
             ok += 1
         elif rec["status"] == "skipped":

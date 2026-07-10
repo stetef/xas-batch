@@ -66,19 +66,31 @@ Facts that drive the design:
 io.py / model.py   pure numpy, NO Larch  — parser + data model + npz/scan-grouping
 process.py         the Larch layer       — pre_edge / autobk / xftf
 catalog.py         stdlib sqlite3        — the tree-run catalog
-plotting.py        matplotlib (optional) — per-scan pipeline figures
+plotting.py        matplotlib (optional) — per-scan pipeline figures → PNGs
+plotlyplots.py     plotly (optional)     — the same figures, interactive
 cli.py             xas-batch entry point
-tree.py            xas-batch-tree entry point (walk + pool + catalog)
+tree.py            xas-batch-tree entry point (walk + pool + catalog; --plots for PNGs)
 plotcli.py         xas-batch-plot entry point (per-scan figures for one file)
+viewer_app.py      xas-batch-view — Streamlit fit viewer (search + live Plotly + QC flags)
+viewcli.py         xas-batch-view launcher (wraps `streamlit run`)
 ```
 
 **Plotting re-runs from source, and re-uses the Larch groups.** The fit curves a
 reviewer wants to see — the pre-edge line, post-edge polynomial, and AUTOBK background
 — live on the Larch group but are *not* stored in the `.npz` (which keeps only stacked
 arrays). So `process.process_scans()` re-runs the per-scan pipeline and hands the full
-groups to `plotting.py`. This keeps the `.npz` lean and the plots always faithful to a
-given `Params`, at the cost of a cheap recompute (~15 scans). matplotlib stays out of
-the core (`io`/`process`); only `plotting.py`/`plotcli.py` import it.
+groups to the drawing layer. This keeps the `.npz` lean and the plots always faithful to
+a given `Params`, at the cost of a cheap recompute (~15 scans). The matplotlib
+(`plotting.py`) and Plotly (`plotlyplots.py`) renderers are twins over that same
+`process_scans()` output — identical processing, one drawing static PNGs and the other
+interactive figures — so the viewer never depends on pre-baked images. Neither plotting
+library touches the core (`io`/`process`); both are optional extras (`plot`, `viewer`).
+
+**The viewer renders live and stays optional.** `viewer_app.py` reads the SQLite catalog,
+loads each `.bcr.combined` on demand (~50 ms/file), and builds the Plotly figures with the
+`params_json` recorded per file — so what you see matches the batch. It's imported by
+nothing in the pipeline, and Streamlit/Plotly live only in the `viewer` extra (CI syncs
+without them; their tests `importorskip`).
 
 **The parser is the only genuinely custom, bug-prone code, so it carries no Larch
 dependency** — `io.py`/`model.py`/`catalog.py` are unit-testable in ~3 s without
